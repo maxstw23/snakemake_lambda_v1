@@ -415,7 +415,6 @@ def plot_fig_2(dict_input, figs, input_path, **kwargs):
             datapoints['lambdas'].add_point(value, error_stat, error_sys)
         
         for particle in ['pions', 'kaons', 'protons']:
-            # fit = 'cubic' if particle == 'protons' else 'linear'
             fit = 'linear'
             value = pikp_slopes[energy][particle][f'delta_{fit}']
             error_stat = pikp_slopes[energy][particle][f'delta_{fit}_err']
@@ -1456,7 +1455,7 @@ def plot_ds_comparison(dict_input, figs, input_path, **kwargs):
     return figs    
 
 
-def plot_dv1dy_energy_dependence(dict_input, figs, input_path):
+def plot_dv1dy_energy_dependence(dict_input, figs, input_path, proton_fit='linear'):
     files = dict_input['dv1dy_coal']
     energies = [float(f.split('/')[-1].replace('.yaml', '').split('_')[-1].replace('p', '.').replace('GeV', '')) for f in files]
     pikp_correspondence = {'pions': ['piplus', 'piminus'], 'kaons': ['kplus', 'kminus'], 'protons': ['proton', 'antiproton']}
@@ -1484,9 +1483,8 @@ def plot_dv1dy_energy_dependence(dict_input, figs, input_path):
         
         # pions, kaons, protons from Aditya
         energy = f.split('/')[-1].replace('.yaml', '').split('_')[-1].replace('p', '.')
-        # fit = 'cubic'
         for particle in ['pions', 'kaons', 'protons']:
-            fit = 'cubic' if particle == 'protons' else 'linear'
+            fit = proton_fit if particle == 'protons' else 'linear'
             for cent in cent_ranges:
                 # positive
                 key = f'{pikp_correspondence[particle][0]}_{cent}'
@@ -1679,15 +1677,15 @@ def plot_dv1dy_energy_dependence(dict_input, figs, input_path):
         plt.subplots_adjust(left=0.15, right=0.95, top=0.95, bottom=0.12)
 
         # saving
+        _suffix = f'_cubic_proton' if proton_fit == 'cubic' else ''
+        out_base = input_path.replace('_yaml', '').replace('/sys_tag_0', '')
         if not is_horizontal:
-            plt.savefig(input_path.replace('_yaml', '').replace('/sys_tag_0', '') + '/fig_3_vertical.pdf')
-            # plt.savefig(input_path.replace('_yaml', '').replace('/sys_tag_0', '') + '/fig_3_vertical.eps', format='eps')
-            plt.savefig(input_path.replace('_yaml', '').replace('/sys_tag_0', '') + '/fig_3_vertical.svg', format='svg', transparent = True, bbox_inches = 'tight', pad_inches = 0)
+            plt.savefig(out_base + f'/fig_3_vertical{_suffix}.pdf')
+            plt.savefig(out_base + f'/fig_3_vertical{_suffix}.svg', format='svg', transparent=True, bbox_inches='tight', pad_inches=0)
         else:
             plt.tight_layout()
-            plt.savefig(input_path.replace('_yaml', '').replace('/sys_tag_0', '') + '/fig_3_horizontal.pdf')
-            # plt.savefig(input_path.replace('_yaml', '').replace('/sys_tag_0', '') + '/fig_3_horizontal.eps', format='eps')
-            plt.savefig(input_path.replace('_yaml', '').replace('/sys_tag_0', '') + '/fig_3_horizontal.svg', format='svg', transparent = True, bbox_inches = 'tight', pad_inches = 0)
+            plt.savefig(out_base + f'/fig_3_horizontal{_suffix}.pdf')
+            plt.savefig(out_base + f'/fig_3_horizontal{_suffix}.svg', format='svg', transparent=True, bbox_inches='tight', pad_inches=0)
         plt.close()  
 
     fig_dep_5080, ax_dep_5080 = plt.subplots()
@@ -1977,6 +1975,33 @@ def plot_dv1dy_energy_dependence(dict_input, figs, input_path):
             dv1dy_deltalambda_err = np.array(dv1dy_deltalambda_err)
             energy = f.split('/')[-1].replace('.yaml', '').split('_')[-1].replace('p', '.')
 
+            # piKp combo data (matches fig_3: combo2 = delta_proton, combo1 = delta_proton - delta_kaon)
+            delta_proton = []
+            delta_proton_stat = []
+            delta_proton_sys = []
+            combo1 = []
+            combo1_stat = []
+            combo1_sys = []
+            for cent in ['010', '1040', '4080', '5080']:
+                dp = pikp_slopes[energy]['protons'][f'{cent}_linear']['delta']
+                dp_stat = pikp_slopes[energy]['protons'][f'{cent}_linear']['delta_err']
+                dp_sys = pikp_slopes[energy]['protons'][f'{cent}_linear']['delta_systematics']
+                dk = pikp_slopes[energy]['kaons'][f'{cent}_linear']['delta']
+                dk_stat = pikp_slopes[energy]['kaons'][f'{cent}_linear']['delta_err']
+                dk_sys = pikp_slopes[energy]['kaons'][f'{cent}_linear']['delta_systematics']
+                delta_proton.append(dp)
+                delta_proton_stat.append(dp_stat)
+                delta_proton_sys.append(dp_sys)
+                combo1.append(dp - dk)
+                combo1_stat.append(np.sqrt(dp_stat**2 + dk_stat**2))
+                combo1_sys.append(np.sqrt(dp_sys**2 + dk_sys**2))
+            delta_proton = np.array(delta_proton)
+            delta_proton_stat = np.array(delta_proton_stat)
+            delta_proton_sys = np.array(delta_proton_sys)
+            combo1 = np.array(combo1)
+            combo1_stat = np.array(combo1_stat)
+            combo1_sys = np.array(combo1_sys)
+
             df = pd.DataFrame({
                 'centrality': centrality,
                 'dv1dy_lambda': dv1dy_lambda,
@@ -1984,7 +2009,11 @@ def plot_dv1dy_energy_dependence(dict_input, figs, input_path):
                 'dv1dy_lambdabar': dv1dy_lambdabar,
                 'dv1dy_lambdabar_err': dv1dy_lambdabar_err,
                 'delta_dv1dy': dv1dy_deltalambda,
-                'delta_dv1dy_err': dv1dy_deltalambda_err
+                'delta_dv1dy_err': dv1dy_deltalambda_err,
+                'delta_dv1dy_proton': delta_proton,
+                'delta_dv1dy_proton_err': delta_proton_stat,
+                'delta_dv1dy_combo': combo1,
+                'delta_dv1dy_combo_err': combo1_stat
             })
 
             if 'yerr_sys' in data_dict:
@@ -2018,7 +2047,13 @@ def plot_dv1dy_energy_dependence(dict_input, figs, input_path):
                     'dv1dy_lambdabar_err_sys': dv1dy_lambdabar_sys_err,
                     'delta_dv1dy': dv1dy_deltalambda,
                     'delta_dv1dy_err_stat': dv1dy_deltalambda_stat_err,
-                    'delta_dv1dy_err_sys': dv1dy_deltalambda_sys_err
+                    'delta_dv1dy_err_sys': dv1dy_deltalambda_sys_err,
+                    'delta_dv1dy_proton': delta_proton,
+                    'delta_dv1dy_proton_err_stat': delta_proton_stat,
+                    'delta_dv1dy_proton_err_sys': delta_proton_sys,
+                    'delta_dv1dy_combo': combo1,
+                    'delta_dv1dy_combo_err_stat': combo1_stat,
+                    'delta_dv1dy_combo_err_sys': combo1_sys
                 })
             df.to_csv(input_path.replace('_yaml', '').replace('/sys_tag_0', '') + f'/data_points/dv1dy_{energy}_merged.csv', index=False)
 
@@ -2280,6 +2315,7 @@ def main(dict_input, output_file=None):
     figs = plot_PT_test_mod(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
     figs = plot_ds_comparison(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
     figs = plot_dv1dy_energy_dependence(dict_input, figs, input_path)
+    figs = plot_dv1dy_energy_dependence(dict_input, figs, input_path, proton_fit='cubic')
     figs = plot_PT_energy_dependence(dict_input, figs, input_path)
     figs = plot_BESI_coal(dict_input, figs, input_path)
 

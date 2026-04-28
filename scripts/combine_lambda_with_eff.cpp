@@ -23,11 +23,12 @@ std::string upper_case_first(std::string str) {
     return str;
 }
 
-void combine_lambda_with_eff(std::string inputDir="./", std::string outputDir="./", 
+void combine_lambda_with_eff(std::string inputDir="./", std::string outputDir="./",
                              std::string effFile="result/eff/efficiency_lambda_19p6GeV.root",
-                             float pt_lo=0.42, float pt_hi=1.8, 
-                             std::string particle="Lambda", std::string flow_case="v1", 
-                             std::string energy="19p6GeV", float y_cut=0.6)   
+                             float pt_lo=0.42, float pt_hi=1.8,
+                             std::string particle="Lambda", std::string flow_case="v1",
+                             std::string energy="19p6GeV", float y_cut=0.6,
+                             int use_y_binned_eff=1)
 {
     int ptbin_lo = (int)(pt_lo * 10);
     int ptbin_hi = (int)(pt_hi * 10) - 1;
@@ -37,9 +38,15 @@ void combine_lambda_with_eff(std::string inputDir="./", std::string outputDir=".
 
     // Load Efficiency Functions
     TF1* eff_fit[9];
-    for (int c = 0; c < 9; c++) {
+    for (int c = 0; c < 9; c++)
         eff_fit[c] = (TF1*)feff.Get(Form("fit1D_cen%d", c));
-    }
+
+    TF1* eff_fit_ybin[9][20];
+    for (int c = 0; c < 9; c++)
+        for (int yb = 0; yb < 20; yb++)
+            eff_fit_ybin[c][yb] = use_y_binned_eff
+                ? (TF1*)feff.Get(Form("fit1D_cen%d_ybin%d", c, yb))
+                : nullptr;
 
     TH1D *hout[9][20], *hout_pt_east[9][14], *hout_pt_west[9][14];
     TProfile *pout[9][20], *pout_pt_east[9][14], *pout_pt_west[9][14];
@@ -82,8 +89,9 @@ void combine_lambda_with_eff(std::string inputDir="./", std::string outputDir=".
             for (int i = ptbin_lo; i <= ptbin_hi; i++)
             {
                 float pt = (i + 0.5) / 10.0;
-                float eff_val = eff_fit[cen] ? eff_fit[cen]->Eval(pt) : 1.0;
-                if (eff_val <= 0) eff_val = 1e-4; // Protect against division by zero
+                TF1* eff_func = eff_fit_ybin[cen][ybin] ? eff_fit_ybin[cen][ybin] : eff_fit[cen];
+                float eff_val = eff_func ? eff_func->Eval(pt) : 1.0;
+                if (eff_val <= 0) eff_val = 1e-4;
                 float eff_weight = 1.0 / eff_val;
 
                 TProfile *p1 = (TProfile *)f.Get(Form("h%s_EPD_%s_pt_%d_%d_%d", particle_upper.c_str(), flow_case.c_str(), cen, ybin, i));
@@ -121,12 +129,9 @@ void combine_lambda_with_eff(std::string inputDir="./", std::string outputDir=".
     
         // --- B. Integrate over y (pT-dependent result) ---
         for (int i = ptbin_lo; i <= ptbin_hi; i++)
-        {   
+        {
             int pt_idx = i - ptbin_lo;
             float pt = (i + 0.5) / 10.0;
-            float eff_val = eff_fit[cen] ? eff_fit[cen]->Eval(pt) : 1.0;
-            if (eff_val <= 0) eff_val = 1e-4;
-            float eff_weight = 1.0 / eff_val;
 
             // EAST Initialization
             pout_pt_east[cen][pt_idx] = (TProfile*)f.Get(Form("h%s_EPD_%s_pt_%d_%d_%d", particle_upper.c_str(), flow_case.c_str(), cen, valid_y_east[0], i))->Clone(Form("h%s_EPD_%s_pt_east_%d_%d", particle_upper.c_str(), flow_case.c_str(), cen, i));
@@ -143,16 +148,20 @@ void combine_lambda_with_eff(std::string inputDir="./", std::string outputDir=".
             huncorrected_pt_east[cen][pt_idx] = (TH1D*)hout_pt_east[cen][pt_idx]->Clone(Form("h%sM_cen_pt_east_%d_%d_uncorrected", particle_upper.c_str(), cen, i));
 
             // EAST Integration (strictly within -y_cut to 0)
-            for (int ybin : valid_y_east) 
+            for (int ybin : valid_y_east)
             {
                 int sign_flip = -1; // flip sign for negative rapidity
-                
+                TF1* eff_func_e = eff_fit_ybin[cen][ybin] ? eff_fit_ybin[cen][ybin] : eff_fit[cen];
+                float eff_val_e = eff_func_e ? eff_func_e->Eval(pt) : 1.0;
+                if (eff_val_e <= 0) eff_val_e = 1e-4;
+                float eff_weight_e = 1.0 / eff_val_e;
+
                 TProfile *p1 = (TProfile *)f.Get(Form("h%s_EPD_%s_pt_%d_%d_%d", particle_upper.c_str(), flow_case.c_str(), cen, ybin, i));
                 pout_pt_east[cen][pt_idx]->Add(pout_pt_east[cen][pt_idx], p1, 1.0, sign_flip);
                 puncorrected_pt_east[cen][pt_idx]->Add(puncorrected_pt_east[cen][pt_idx], p1, 1.0, 1.0);
-                
+
                 TH1D *h1 = (TH1D *)f.Get(Form("h%sM_cen_y_pt_%d_%d_%d", particle_upper.c_str(), cen, ybin, i));
-                hout_pt_east[cen][pt_idx]->Add(hout_pt_east[cen][pt_idx], h1, 1.0, eff_weight); // Yield scale
+                hout_pt_east[cen][pt_idx]->Add(hout_pt_east[cen][pt_idx], h1, 1.0, eff_weight_e);
                 huncorrected_pt_east[cen][pt_idx]->Add(huncorrected_pt_east[cen][pt_idx], h1, 1.0, 1.0);
             }
 
@@ -171,14 +180,19 @@ void combine_lambda_with_eff(std::string inputDir="./", std::string outputDir=".
             huncorrected_pt_west[cen][pt_idx] = (TH1D*)hout_pt_west[cen][pt_idx]->Clone(Form("h%sM_cen_pt_west_%d_%d_uncorrected", particle_upper.c_str(), cen, i));
             
             // WEST Integration (strictly within 0 to y_cut)
-            for (int ybin : valid_y_west) 
+            for (int ybin : valid_y_west)
             {
+                TF1* eff_func_w = eff_fit_ybin[cen][ybin] ? eff_fit_ybin[cen][ybin] : eff_fit[cen];
+                float eff_val_w = eff_func_w ? eff_func_w->Eval(pt) : 1.0;
+                if (eff_val_w <= 0) eff_val_w = 1e-4;
+                float eff_weight_w = 1.0 / eff_val_w;
+
                 TProfile *p1 = (TProfile *)f.Get(Form("h%s_EPD_%s_pt_%d_%d_%d", particle_upper.c_str(), flow_case.c_str(), cen, ybin, i));
                 pout_pt_west[cen][pt_idx]->Add(pout_pt_west[cen][pt_idx], p1, 1.0, 1.0);
                 puncorrected_pt_west[cen][pt_idx]->Add(puncorrected_pt_west[cen][pt_idx], p1, 1.0, 1.0);
-                
+
                 TH1D *h1 = (TH1D *)f.Get(Form("h%sM_cen_y_pt_%d_%d_%d", particle_upper.c_str(), cen, ybin, i));
-                hout_pt_west[cen][pt_idx]->Add(hout_pt_west[cen][pt_idx], h1, 1.0, eff_weight); // Yield scale
+                hout_pt_west[cen][pt_idx]->Add(hout_pt_west[cen][pt_idx], h1, 1.0, eff_weight_w);
                 huncorrected_pt_west[cen][pt_idx]->Add(huncorrected_pt_west[cen][pt_idx], h1, 1.0, 1.0);
             }
             

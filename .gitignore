@@ -1,8 +1,11 @@
 /.snakemake
 /.vscode
+/.serena
 /debug
 /logs
 /plots
 /result
 /data
 /Etabins_20*
+__pycache__/
+*.pyc

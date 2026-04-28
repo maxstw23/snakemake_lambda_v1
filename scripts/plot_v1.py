@@ -212,10 +212,16 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         v1_unumpy = unumpy.uarray(v1, v1_err)
         v1_final = v1_unumpy / resolution[cen - 1]
         ybin_good = ybin_unumpy[np.invert(bool_nan)]
+        # For merging: keep full-length arrays with inf error for NaN bins (zero weight)
+        v1_all = np.where(bool_nan, 0.0, data['values'].astype(float))
+        v1_err_all = np.where(bool_nan, np.inf, data['errors'].astype(float))
+        v1_count_all = np.where(bool_nan, 0.0, data['counts'].astype(float))
+        v1_all_unumpy = unumpy.uarray(v1_all, v1_err_all)
+        v1_final_all = v1_all_unumpy / resolution[cen - 1]
         for group in v1_y_lambda_merged.keys():
             if str(cen) in group:
-                v1_y_lambda_merged[group]['measurement'] += Measurement(v1_final)
-                v1_y_lambda_merged[group]['count'] += v1_count
+                v1_y_lambda_merged[group]['measurement'] += Measurement(v1_final_all)
+                v1_y_lambda_merged[group]['count'] += v1_count_all
             if group.endswith(str(cen)):
                 v1_y_lambda_merged[group]['x'] = unumpy.nominal_values(ybin_good)
 
@@ -285,10 +291,16 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         v1_unumpy = unumpy.uarray(v1, v1_err)
         v1_final = v1_unumpy / resolution[cen - 1]
         ybin_good = ybin_unumpy[np.invert(bool_nan)]
+        # For merging: keep full-length arrays with inf error for NaN bins (zero weight)
+        v1_all = np.where(bool_nan, 0.0, data['values'].astype(float))
+        v1_err_all = np.where(bool_nan, np.inf, data['errors'].astype(float))
+        v1_count_all = np.where(bool_nan, 0.0, data['counts'].astype(float))
+        v1_all_unumpy = unumpy.uarray(v1_all, v1_err_all)
+        v1_final_all = v1_all_unumpy / resolution[cen - 1]
         for group in v1_y_lambdabar_merged.keys():
             if str(cen) in group:
-                v1_y_lambdabar_merged[group]['measurement'] += Measurement(v1_final)
-                v1_y_lambdabar_merged[group]['count'] += v1_count
+                v1_y_lambdabar_merged[group]['measurement'] += Measurement(v1_final_all)
+                v1_y_lambdabar_merged[group]['count'] += v1_count_all
             if group.endswith(str(cen)):
                 v1_y_lambdabar_merged[group]['x'] = unumpy.nominal_values(ybin_good)
         _ynom = unumpy.nominal_values(ybin_good)
@@ -362,9 +374,14 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         v1_unumpy = unumpy.uarray(v1, v1_err)
         v1_final = v1_unumpy / resolution[cen - 1]
         ybin_good = ybin_unumpy[np.invert(bool_nan)]
+        # For merging: keep full-length arrays with inf error for NaN bins (zero weight)
+        v1_all = np.where(bool_nan, 0.0, data['values'].astype(float) - data_bar['values'].astype(float))
+        v1_err_all = np.where(bool_nan, np.inf, np.sqrt(data['errors'].astype(float) ** 2 + data_bar['errors'].astype(float) ** 2))
+        v1_all_unumpy = unumpy.uarray(v1_all, v1_err_all)
+        v1_final_all = v1_all_unumpy / resolution[cen - 1]
         for group in v1_y_deltalambda_merged.keys():
             if str(cen) in group:
-                v1_y_deltalambda_merged[group]['measurement'] += Measurement(v1_final)
+                v1_y_deltalambda_merged[group]['measurement'] += Measurement(v1_final_all)
                 # v1_y_deltalambda_merged[group]['count'] += v1_count_lambda
             if group.endswith(str(cen)):
                 v1_y_lambdabar_merged[group]['x'] = unumpy.nominal_values(ybin_good)
@@ -406,6 +423,8 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         x_fit = np.linspace(-1, 1, 101)
         ax_delta[(cen - 1) // 3, (cen - 1) % 3].plot(x_fit, fun(popt, x_fit), '-', color='C2')
         ax_delta[(cen - 1) // 3, (cen - 1) % 3].hlines(0., -1., 1., color='k', linestyle='--')
+        ax_delta[(cen - 1) // 3, (cen - 1) % 3].annotate(f'{centralities_bins[cen]}-{centralities_bins[cen - 1]}%',
+                                                     xy=(0.05, 0.85), xycoords='axes fraction', fontsize=20)
         ax_delta[(cen - 1) // 3, (cen - 1) % 3].annotate(r'$\Delta\Lambda$' + r' $d^3 v_1/dy^3$ ' + f'{ufloat(d3v1dy3_deltalambda[cen - 1], d3v1dy3_deltalambda_err[cen - 1])}',
                                                      xy=(0.05, 0.15), xycoords='axes fraction', fontsize=15)
         # ax_delta[(cen - 1) // 3, (cen - 1) % 3].annotate(r'$\Delta\Lambda$' + f' rchi2 = ' + f'{rchi2:.2f}' + ', rchi2 (1st) = ' + f'{rchi2_first:.2f}',
@@ -587,6 +606,8 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
             max_ylim_a1[(cen - 1) // 3] = np.max([current_ylim, max_ylim_a1[(cen - 1) // 3]])
             ax_delta_a1[(cen - 1) // 3, (cen - 1) % 3].set_ylim(-max_ylim_a1[(cen - 1) // 3] * 1.2, max_ylim_a1[(cen - 1) // 3] * 1.2)
             ax_delta_a1[(cen - 1) // 3, (cen - 1) % 3].hlines(0., -1., 1., color='k', linestyle='--')
+            ax_delta_a1[(cen - 1) // 3, (cen - 1) % 3].annotate(f'{centralities_bins[cen]}-{centralities_bins[cen - 1]}%',
+                                                         xy=(0.05, 0.85), xycoords='axes fraction', fontsize=20)
 
             # fitting
             print(f'Fitting delta a1 for centrality {cen}...')
@@ -682,12 +703,11 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         if cen_mask[cen - 1] == False:
             continue
         bool_nan = np.isnan(data['values'].astype(float))
-        # print error
         if np.any(bool_nan):
             print(f'Warning: NaN values found in lambda_v1_pt_east for centrality {cen}.')
-        v1 = data['values'][np.invert(bool_nan)]
-        v1_count = data['counts'][np.invert(bool_nan)]
-        v1_err = data['errors'][np.invert(bool_nan)]
+        v1 = np.where(bool_nan, 0.0, data['values'].astype(float))
+        v1_count = np.where(bool_nan, 0, data['counts'])
+        v1_err = np.where(bool_nan, np.inf, data['errors'].astype(float))
         v1_unumpy = unumpy.uarray(v1, v1_err)
         v1_final = v1_unumpy / resolution[cen - 1]
         for group in v1_pt_merged.keys():
@@ -723,12 +743,11 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         if cen_mask[cen - 1] == False:
             continue
         bool_nan = np.isnan(data['values'].astype(float))
-        # print error
         if np.any(bool_nan):
             print(f'Warning: NaN values found in lambdabar_v1_pt_east for centrality {cen}.')
-        v1 = data['values'][np.invert(bool_nan)]
-        v1_count = data['counts'][np.invert(bool_nan)]
-        v1_err = data['errors'][np.invert(bool_nan)]
+        v1 = np.where(bool_nan, 0.0, data['values'].astype(float))
+        v1_count = np.where(bool_nan, 0, data['counts'])
+        v1_err = np.where(bool_nan, np.inf, data['errors'].astype(float))
         v1_unumpy = unumpy.uarray(v1, v1_err)
         v1_final = v1_unumpy / resolution[cen - 1]
         for group in v1_pt_merged.keys():
@@ -764,12 +783,11 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         if cen_mask[cen - 1] == False:
             continue
         bool_nan = np.isnan(data['values'].astype(float))
-        # print error
         if np.any(bool_nan):
             print(f'Warning: NaN values found in lambda_v1_pt_west for centrality {cen}.')
-        v1 = data['values'][np.invert(bool_nan)]
-        v1_count = data['counts'][np.invert(bool_nan)]
-        v1_err = data['errors'][np.invert(bool_nan)]
+        v1 = np.where(bool_nan, 0.0, data['values'].astype(float))
+        v1_count = np.where(bool_nan, 0, data['counts'])
+        v1_err = np.where(bool_nan, np.inf, data['errors'].astype(float))
         v1_unumpy = unumpy.uarray(v1, v1_err)
         v1_final = v1_unumpy / resolution[cen - 1]
         for group in v1_pt_merged.keys():
@@ -803,12 +821,11 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         if cen_mask[cen - 1] == False:
             continue
         bool_nan = np.isnan(data['values'].astype(float))
-        # print error
         if np.any(bool_nan):
             print(f'Warning: NaN values found in lambdabar_v1_pt_west for centrality {cen}.')
-        v1 = data['values'][np.invert(bool_nan)]
-        v1_count = data['counts'][np.invert(bool_nan)]
-        v1_err = data['errors'][np.invert(bool_nan)]
+        v1 = np.where(bool_nan, 0.0, data['values'].astype(float))
+        v1_count = np.where(bool_nan, 0, data['counts'])
+        v1_err = np.where(bool_nan, np.inf, data['errors'].astype(float))
         v1_unumpy = unumpy.uarray(v1, v1_err)
         v1_final = v1_unumpy / resolution[cen - 1]
         for group in v1_pt_merged.keys():

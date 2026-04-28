@@ -229,10 +229,12 @@ def main(fit_csvs: list[str], res_files: list[str], output: str) -> None:
     print('=' * 75)
 
     # ------------------------------------------------------------------
-    # PDF
+    # PDF + SVG
     # ------------------------------------------------------------------
     Path(output).parent.mkdir(parents=True, exist_ok=True)
+    svg_stem = Path(output).with_suffix('')
     energies_present = [e for e in energy_order if e in results]
+    page_idx = 0
 
     with PdfPages(output) as pdf:
 
@@ -266,6 +268,8 @@ def main(fit_csvs: list[str], res_files: list[str], output: str) -> None:
                             fontsize=8, color='black')
             fig.tight_layout()
             pdf.savefig(fig)
+            fig.savefig(f'{svg_stem}_p{page_idx:02d}.svg', format='svg')
+            page_idx += 1
             plt.close(fig)
 
         # Pages 4-6 : dv1/dy comparison (always-linear vs adaptive) per particle
@@ -319,6 +323,8 @@ def main(fit_csvs: list[str], res_files: list[str], output: str) -> None:
                     ax.legend(fontsize=10)
             fig.tight_layout()
             pdf.savefig(fig)
+            fig.savefig(f'{svg_stem}_p{page_idx:02d}.svg', format='svg')
+            page_idx += 1
             plt.close(fig)
 
         # Pages 7+ : chi2/ndf per energy (3 panels: Lambda, Lambdabar, DeltaLambda)
@@ -352,6 +358,8 @@ def main(fit_csvs: list[str], res_files: list[str], output: str) -> None:
                 ax.legend(fontsize=11)
             fig.tight_layout()
             pdf.savefig(fig)
+            fig.savefig(f'{svg_stem}_p{page_idx:02d}.svg', format='svg')
+            page_idx += 1
             plt.close(fig)
 
 

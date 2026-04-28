@@ -6,6 +6,9 @@ import os
 import re
 import numpy as np
 
+# CERN ROOT via Docker (not installed locally)
+DOCKER_ROOT = 'docker run --rm -v "$(pwd)":/work -w /work rootproject/root:latest root'
+
 # to be changed
 energies = config['energies']
 
@@ -14,11 +17,24 @@ data_files = {'0': {energy: sorted(glob.glob(f'data/result*_{energy}.root'), key
 # systematic files, right now only one energy and one systematic!!!
 data_files.update({str(sys_tag): {energy: sorted(glob.glob(f'data/sys_tag_{sys_tag}/result*_{energy}.root'), key=lambda x: int(re.search(r'\d+', x).group()))[-1] for energy in energies} for sys_tag in [1,2,3]})
 
-eff_files = {energy: sorted(glob.glob(f'data/eff/result*_lambda_exp_{energy}.root'), key=lambda x: int(re.search(r'\d+', x).group()))[-1] for energy in ['14p6GeV', '19p6GeV', '27GeV']}
-eff_files_lambdabar = {energy: sorted(glob.glob(f'data/eff/result*_lambdabar_exp_{energy}.root'), key=lambda x: int(re.search(r'\d+', x).group()))[-1] for energy in ['14p6GeV', '19p6GeV', '27GeV'] if glob.glob(f'data/eff/result*_lambdabar_exp_{energy}.root')}
+eff_files = {energy: sorted(glob.glob(f'data/eff/result*_lambda_exp_{energy}.root'), key=lambda x: int(re.search(r'\d+', x).group()))[-1] for energy in ['7p7GeV', '9p2GeV', '11p5GeV', '14p6GeV', '17p3GeV', '19p6GeV', '27GeV']}
+eff_files_lambdabar = {energy: sorted(glob.glob(f'data/eff/result*_lambdabar_exp_{energy}.root'), key=lambda x: int(re.search(r'\d+', x).group()))[-1] for energy in ['7p7GeV', '9p2GeV', '11p5GeV', '14p6GeV', '17p3GeV', '19p6GeV', '27GeV'] if glob.glob(f'data/eff/result*_lambdabar_exp_{energy}.root')}
 eff_files_all = {'lambda': eff_files, 'lambdabar': eff_files_lambdabar}
+
+wildcard_constraints:
+    particle='[A-Za-z]+',
+    flow='[a-z0-9]+',
+    energy='[0-9p]+GeV',
+    sys_tag='[0-9]+',
+
+_eff_plot_targets = (
+    [f'plots/sys_tag_0/eff_vs_pt_lambda_{e}.png' for e in eff_files] +
+    [f'plots/sys_tag_0/eff_vs_pt_lambdabar_{e}.png' for e in eff_files_lambdabar]
+)
 rule all:
-    input: 'plots/paper/report.pdf'
+    input:
+        'plots/paper/report.pdf',
+        _eff_plot_targets
 
 # rule generate_report:
 #     input: expand('plots/dv1a1dy_{energy}.pdf', energy=energies),
@@ -41,7 +57,7 @@ rule combine_lambda:
     log: stdout='logs/sys_tag_{sys_tag}/combine_{particle}_{flow}_{energy}.log', stderr='logs/sys_tag_{sys_tag}/combine_{particle}_{flow}_{energy}.err'
     shell: 
         """
-        root -b -q -l '{input.script}("{input.data_file}", "./result/sys_tag_{wildcards.sys_tag}/", {params.pt_lo}, {params.pt_hi}, "{wildcards.particle}", "{wildcards.flow}", "{wildcards.energy}", {params.y_cut})' > {log.stdout} 2> {log.stderr}
+        {DOCKER_ROOT} -b -q -l '{input.script}("{input.data_file}", "./result/sys_tag_{wildcards.sys_tag}/", {params.pt_lo}, {params.pt_hi}, "{wildcards.particle}", "{wildcards.flow}", "{wildcards.energy}", {params.y_cut})' > {log.stdout} 2> {log.stderr}
         """
 
 rule combine_lambda_with_eff:
@@ -59,7 +75,7 @@ rule combine_lambda_with_eff:
         stderr='logs/sys_tag_{sys_tag}/combine_eff_{particle}_{flow}_{energy}.err'
     shell: 
         """
-        root -b -q -l '{input.script}("{input.data_file}", "./result/sys_tag_{wildcards.sys_tag}/", "{input.eff_file}", {params.pt_lo}, {params.pt_hi}, "{wildcards.particle}", "{wildcards.flow}", "{wildcards.energy}", {params.y_cut})' > {log.stdout} 2> {log.stderr}
+        {DOCKER_ROOT} -b -q -l '{input.script}("{input.data_file}", "./result/sys_tag_{wildcards.sys_tag}/", "{input.eff_file}", {params.pt_lo}, {params.pt_hi}, "{wildcards.particle}", "{wildcards.flow}", "{wildcards.energy}", {params.y_cut}, 1)' > {log.stdout} 2> {log.stderr}
         """
 
 rule calculate_efficiency:
@@ -71,7 +87,17 @@ rule calculate_efficiency:
         y_cut = config["y_cut"]
     shell:
         """
-        root -l -b -q '{input.script}("{input.data}", "{output}", {params.y_cut})'
+        {DOCKER_ROOT} -l -b -q '{input.script}("{input.data}", "{output}", {params.y_cut})'
+        """
+
+rule plot_efficiency:
+    input:
+        eff_file='result/eff/efficiency_{particle}_{energy}.root',
+        script='scripts/plot_eff_vs_pt.py'
+    output: 'plots/sys_tag_0/eff_vs_pt_{particle}_{energy}.png'
+    shell:
+        """
+        python {input.script} --eff_file {input.eff_file} --particle {wildcards.particle} --energy {wildcards.energy} --output {output}
         """
 
 def get_combined_file(wildcards):
@@ -225,6 +251,8 @@ rule plot_v1_special_sys:
         plot_v2_lo = lambda wildcards: config['plotting'][wildcards.energy]['v2_lo'],
         plot_v2_hi = lambda wildcards: config['plotting'][wildcards.energy]['v2_hi'],
         order = lambda wildcards: config['fit_order'][wildcards.energy]
+    wildcard_constraints:
+        sys_tag='[56]'
     output: 'plots/special_sys_tag_{sys_tag}/v1_cen_{energy}.pdf',
             # 'plots/special_sys_tag_{sys_tag}/a1_cen_{energy}.pdf',
             # 'plots/special_sys_tag_{sys_tag}/dv1a1dy_{energy}.pdf',
@@ -237,6 +265,88 @@ rule plot_v1_special_sys:
     shell: 
         'python {input.script} --fres {input.data_file} --paths {input.lambda_v1} --energy {params.energy} --method {params.order}'
         ' --paths_piKp {input.piKp_v1} --paths_pt {input.lambda_v1_pt} --output {output.data_points} --sys_tag {wildcards.sys_tag} --yrange {params.plot_v2_lo} {params.plot_v2_hi}'
+        ' > {log.stdout} 2> {log.stderr}'
+
+rule combine_lambda_with_eff_yint:
+    """special_sys_tag_7: y-integrated efficiency correction (vs per-y-bin default)."""
+    input:
+        data_file=lambda wildcards: data_files['0'][wildcards.energy],
+        eff_file=lambda wildcards: f'result/eff/efficiency_{wildcards.particle.lower()}_{wildcards.energy}.root',
+        script='scripts/combine_lambda_with_eff.cpp'
+    output: 'result/special_sys_tag_7/combined_{particle}_{flow}_{energy}_eff_corrected.root'
+    params:
+        pt_lo = config['pt_lo'],
+        pt_hi = config['pt_hi'],
+        y_cut = config['y_cut']
+    log:
+        stdout='logs/special_sys_tag_7/combine_eff_{particle}_{flow}_{energy}.log',
+        stderr='logs/special_sys_tag_7/combine_eff_{particle}_{flow}_{energy}.err'
+    shell:
+        """
+        {DOCKER_ROOT} -b -q -l '{input.script}("{input.data_file}", "./result/special_sys_tag_7/", "{input.eff_file}", {params.pt_lo}, {params.pt_hi}, "{wildcards.particle}", "{wildcards.flow}", "{wildcards.energy}", {params.y_cut}, 0)' > {log.stdout} 2> {log.stderr}
+        """
+
+def get_combined_file_yint(wildcards):
+    particle_eff_energies = {
+        'lambda':    list(eff_files.keys()),
+        'lambdabar': list(eff_files_lambdabar.keys()),
+    }
+    available = particle_eff_energies.get(wildcards.particle.lower(), [])
+    if wildcards.energy in available:
+        return f"result/special_sys_tag_7/combined_{wildcards.particle}_{wildcards.flow}_{wildcards.energy}_eff_corrected.root"
+    else:
+        return f"result/sys_tag_0/combined_{wildcards.particle}_{wildcards.flow}_{wildcards.energy}.root"
+
+rule fit_particle_yint:
+    """Fit v1(y) on y-integrated eff-corrected files for special_sys_tag_7."""
+    input:
+        data_file=get_combined_file_yint,
+        script='scripts/fit_v1.py'
+    output:
+        data_points='result/special_sys_tag_7/fit_{particle}_{flow}_{energy}.csv',
+        invmass_plot='plots/special_sys_tag_7/paper_yaml/invmass/{particle}_fit_{flow}_{energy}_invmass_cen4_y0.7.yaml',
+        v1_fit_plot='plots/special_sys_tag_7/paper_yaml/v1fit/{particle}_fit_{flow}_{energy}_v1fit_cen4_y0.7.yaml'
+    params:
+        energy=lambda wildcards: wildcards.energy,
+        yrebin=lambda wildcards: config['yrebin'][wildcards.energy][wildcards.particle]
+    log:
+        stdout='logs/special_sys_tag_7/fit_{particle}_{flow}_{energy}.log',
+        stderr='logs/special_sys_tag_7/fit_{particle}_{flow}_{energy}.err'
+    shell:
+        """
+        python {input.script} {input.data_file} {output.data_points} \
+            --yrebin {params.yrebin} \
+            --max_refit 500 \
+            --paper_plot_path {output.invmass_plot} \
+            > {log.stdout} 2> {log.stderr}
+        """
+
+rule plot_v1_yint:
+    """Plot v1 for special_sys_tag_7 (y-integrated eff) using default dataset."""
+    input:
+        data_file=lambda wildcards: data_files['0'][wildcards.energy],
+        piKp_v1=lambda wildcards: expand('result/v1_piKp/{energy}/{particle}/result.csv', energy=wildcards.energy, particle=['pions', 'kaons', 'protons']),
+        lambda_v1=lambda wildcards: expand('result/special_sys_tag_7/fit_{particle}_{flow}_{e}.csv', particle=config['particles'], flow=config['flows'], e=wildcards.energy),
+        lambda_v1_pt=lambda wildcards: expand('result/sys_tag_0/pt_fit_{particle}_{ew}_{flow}_{energy}.csv', particle=config['particles'], ew=['east', 'west'], flow=config['flows'], energy=wildcards.energy),
+        script='scripts/plot_v1.py'
+    params:
+        energy=lambda wildcards: wildcards.energy,
+        plot_v2_lo=lambda wildcards: config['plotting'][wildcards.energy]['v2_lo'],
+        plot_v2_hi=lambda wildcards: config['plotting'][wildcards.energy]['v2_hi'],
+        order=lambda wildcards: config['fit_order'][wildcards.energy]
+    output:
+        'plots/special_sys_tag_7/v1_cen_{energy}.pdf',
+        'plots/special_sys_tag_7/resolution_{energy}.pdf',
+        'plots/special_sys_tag_7/paper_yaml/resolution_{energy}.yaml',
+        'plots/special_sys_tag_7/dv1dy_coal_{energy}.pdf',
+        'plots/special_sys_tag_7/paper_yaml/dv1dy_coal_{energy}.yaml',
+        data_points='result/special_sys_tag_7/data_{energy}.txt'
+    log:
+        stdout='logs/special_sys_tag_7/plot_v1_{energy}.log',
+        stderr='logs/special_sys_tag_7/plot_v1_{energy}.err'
+    shell:
+        'python {input.script} --fres {input.data_file} --paths {input.lambda_v1} --energy {params.energy} --method {params.order}'
+        ' --paths_piKp {input.piKp_v1} --paths_pt {input.lambda_v1_pt} --output {output.data_points} --sys_tag 7 --yrange {params.plot_v2_lo} {params.plot_v2_hi}'
         ' > {log.stdout} 2> {log.stderr}'
 
 rule plot_v1_Xi:
@@ -277,8 +387,8 @@ rule prepare_piKp:
     log: stdout='logs/prepare_piKp_{energy}_{particle}_{cen}.log', stderr='logs/prepare_piKp_{energy}_{particle}_{cen}.err'
     shell:
         """
-        root -b -q '{input.script}({params.cen},"{input.data_file}","{output.v1_file}",0,{params.pt_lo},{params.pt_hi})' > {log.stdout} 2> {log.stderr}
-        root -b -q '{input.script}({params.cen},"{input.data_file}","{output.a1_file}",1,{params.pt_lo},{params.pt_hi})' > {log.stdout} 2> {log.stderr}
+        {DOCKER_ROOT} -b -q '{input.script}({params.cen},"{input.data_file}","{output.v1_file}",0,{params.pt_lo},{params.pt_hi})' > {log.stdout} 2> {log.stderr}
+        {DOCKER_ROOT} -b -q '{input.script}({params.cen},"{input.data_file}","{output.a1_file}",1,{params.pt_lo},{params.pt_hi})' > {log.stdout} 2> {log.stderr}
         """
 
 rule fit_piKp:
@@ -301,9 +411,7 @@ rule fit_piKp:
         cp {input.v1_file} temp_{params.energy}_{params.particle}
         cp {input.a1_file} temp_{params.energy}_{params.particle}
         cp {input.script} temp_{params.energy}_{params.particle}
-        cd temp_{params.energy}_{params.particle}
-        root -b -q '{params.script_base}("{params.output_base}", "{params.plot_base}",{params.order})' > ../{log.stdout} 2> ../{log.stderr}
-        cd ..
+        docker run --rm -v "$(pwd)":/work -w /work/temp_{params.energy}_{params.particle} rootproject/root:latest root -b -q '{params.script_base}("{params.output_base}", "{params.plot_base}",{params.order})' > {log.stdout} 2> {log.stderr}
         mv temp_{params.energy}_{params.particle}/{params.output_base} {output.data_points}
         mv temp_{params.energy}_{params.particle}/{params.plot_base} {output.plot}
         rm -r temp_{params.energy}_{params.particle}
@@ -357,7 +465,7 @@ rule plot_model:
     log: stdout='logs/model/{model}_{energy}.log', stderr='logs/model/{model}_{energy}.err'
     shell:
         """
-        root -b -q -l '{input.script}("{input.model_file}", "{output}")' > {log.stdout} 2> {log.stderr}
+        {DOCKER_ROOT} -b -q -l '{input.script}("{input.model_file}", "{output}")' > {log.stdout} 2> {log.stderr}
         """
 
 # rule plot_all:
@@ -443,3 +551,45 @@ rule generate_spectrum:
     log: stdout='logs/sys_tag_{sys_tag}/{particle}_spectrum.log', stderr='logs/sys_tag_{sys_tag}/{particle}_spectrum.err'
     shell:
         'python {input.script} --input_path {input.input_file} --output_path {output} > {log.stdout} 2> {log.stderr}'
+
+rule plot_eff_impact_fig3:
+    """Diagnostic: energy-dependence version of eff impact — 3 centrality panels vs sqrt(s_NN)."""
+    input:
+        script='scripts/plot_eff_impact_fig3.py',
+        yaml_files=expand('plots/final/paper_yaml/dv1dy_coal_{energy}.yaml', energy=energies),
+        no_eff_csvs=expand('result/no_eff/fit_{particle}_v1_{energy}.csv',
+                           particle=config['particles'], energy=energies),
+        data_files=[data_files['0'][e] for e in energies]
+    output:
+        'plots/eff_impact/delta_lambda_eff_comparison_fig3.pdf'
+    log:
+        stdout='logs/eff_impact/plot_eff_impact_fig3.log',
+        stderr='logs/eff_impact/plot_eff_impact_fig3.err'
+    shell:
+        'python {input.script} '
+        '--yaml_files {input.yaml_files} '
+        '--no_eff_csvs {input.no_eff_csvs} '
+        '--data_files {input.data_files} '
+        '--output {output} '
+        '> {log.stdout} 2> {log.stderr}'
+
+rule plot_eff_impact:
+    """Diagnostic: compare eff-corrected vs uncorrected Delta-Lambda alongside Delta(p)-Delta(K)."""
+    input:
+        script='scripts/plot_eff_impact.py',
+        yaml_files=expand('plots/final/paper_yaml/dv1dy_coal_{energy}.yaml', energy=energies),
+        no_eff_csvs=expand('result/no_eff/fit_{particle}_v1_{energy}.csv',
+                           particle=config['particles'], energy=energies),
+        data_files=[data_files['0'][e] for e in energies]
+    output:
+        'plots/eff_impact/delta_lambda_eff_comparison.pdf'
+    log:
+        stdout='logs/eff_impact/plot_eff_impact.log',
+        stderr='logs/eff_impact/plot_eff_impact.err'
+    shell:
+        'python {input.script} '
+        '--yaml_files {input.yaml_files} '
+        '--no_eff_csvs {input.no_eff_csvs} '
+        '--data_files {input.data_files} '
+        '--output {output} '
+        '> {log.stdout} 2> {log.stderr}'

@@ -9,6 +9,17 @@ conda activate lambda_v1
 # create/update: sh update_env.sh
 ```
 
+## CERN ROOT (Docker)
+
+ROOT is not installed locally. Use the Docker image for any ROOT commands:
+
+```bash
+docker run --rm -v "$(pwd)":/work -w /work rootproject/root:latest \
+  root -l -b -q 'script.cpp("args")'
+```
+
+Image: `rootproject/root:latest` (already pulled).
+
 ## Running
 
 ```bash

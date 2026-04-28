@@ -1,6 +1,7 @@
 #include <iostream>
 #include <TFile.h>
 #include <TH1D.h>
+#include <TH2D.h>
 #include <TF1.h>
 #include <TMath.h>
 #include <TString.h>
@@ -27,10 +28,18 @@ void calculate_lambda_eff(const char* inputPath, const char* outputPath, double 
     }
 
     for (int cen = 0; cen <= 8; ++cen) {
-        TH1D *hMC = (TH1D*)fIn->Get(Form("hMCParPt_%d", cen));
-        TH1D *hReco = (TH1D*)fIn->Get(Form("hKFPRecoParPt_%d", cen));
+        TH2D *hMC2D   = (TH2D*)fIn->Get(Form("hMCParPtEta_%d",       cen));
+        TH2D *hReco2D = (TH2D*)fIn->Get(Form("hKFPRecoParPtEta_%d",   cen));
 
-        if (!hMC || !hReco) continue;
+        if (!hMC2D || !hReco2D) continue;
+
+        // Project onto pT axis restricted to |eta| < y_cut
+        int eta_lo = hMC2D->GetYaxis()->FindBin(-y_cut + 1e-9);
+        int eta_hi = hMC2D->GetYaxis()->FindBin( y_cut - 1e-9);
+        TH1D *hMC   = hMC2D->ProjectionX(Form("hMCPt_cen%d",   cen), eta_lo, eta_hi);
+        TH1D *hReco = hReco2D->ProjectionX(Form("hRecoPt_cen%d", cen), eta_lo, eta_hi);
+        hMC->SetDirectory(0);
+        hReco->SetDirectory(0);
 
         // Data Cleaning: Ensure r <= m for binomial logic
         for (int i = 1; i <= hMC->GetNbinsX(); ++i) {
@@ -61,6 +70,51 @@ void calculate_lambda_eff(const char* inputPath, const char* outputPath, double 
         func1D->Write();
         hMC->Write();
         hReco->Write();
+    }
+
+    // Per-y-bin efficiency (matches combine_lambda_with_eff y-bin numbering: 20 bins of 0.1 from -1 to +1)
+    int num_ybin_eff = 20;
+    double y_interval_eff = 2.0 / num_ybin_eff;
+    for (int ybin = 0; ybin < num_ybin_eff; ++ybin) {
+        double ylo = -1.0 + y_interval_eff * ybin;
+        double yhi = ylo + y_interval_eff;
+        if (yhi <= -y_cut + 1e-9 || ylo >= y_cut - 1e-9) continue;
+
+        for (int cen = 0; cen <= 8; ++cen) {
+            TH2D *hMC2D   = (TH2D*)fIn->Get(Form("hMCParPtEta_%d",     cen));
+            TH2D *hReco2D = (TH2D*)fIn->Get(Form("hKFPRecoParPtEta_%d", cen));
+            if (!hMC2D || !hReco2D) continue;
+
+            int eta_lo_bin = hMC2D->GetYaxis()->FindBin(ylo + 1e-9);
+            int eta_hi_bin = hMC2D->GetYaxis()->FindBin(yhi - 1e-9);
+
+            TH1D *hMC_y   = hMC2D->ProjectionX(Form("hMCPt_cen%d_ybin%d",   cen, ybin), eta_lo_bin, eta_hi_bin);
+            TH1D *hReco_y = hReco2D->ProjectionX(Form("hRecoPt_cen%d_ybin%d", cen, ybin), eta_lo_bin, eta_hi_bin);
+            hMC_y->SetDirectory(0);
+            hReco_y->SetDirectory(0);
+
+            for (int i = 1; i <= hMC_y->GetNbinsX(); ++i) {
+                double m = hMC_y->GetBinContent(i), r = hReco_y->GetBinContent(i);
+                if (r > m && m > 0) hReco_y->SetBinContent(i, m);
+                if (r < 0) hReco_y->SetBinContent(i, 0);
+                if (m < 0) hMC_y->SetBinContent(i, 0);
+            }
+
+            TH1D *hEff_y = (TH1D*)hReco_y->Clone(Form("hEff_cen%d_ybin%d", cen, ybin));
+            hEff_y->SetTitle(Form("Lambda Eff Cent %d ybin %d (%.2f<y<%.2f);p_{T} (GeV/c);#epsilon",
+                                  cen, ybin, ylo, yhi));
+            hEff_y->Divide(hReco_y, hMC_y, 1.0, 1.0, "B");
+
+            TF1 *func_y = new TF1(Form("fit1D_cen%d_ybin%d", cen, ybin), eff_fit_1D, 0.0, 1.8, 5);
+            func_y->SetParameters(0.20, 0.75, 2.8, 0.02, -0.01);
+            func_y->SetParLimits(0, 0.0, 0.6);
+            hEff_y->Fit(func_y, "RQ");
+
+            fOut->cd();
+            hEff_y->Write();
+            func_y->Write();
+            delete hMC_y; delete hReco_y;
+        }
     }
 
     // Close performs the final write; no redundant fOut->Write() here
