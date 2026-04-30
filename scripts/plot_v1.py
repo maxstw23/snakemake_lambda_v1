@@ -1166,16 +1166,6 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
             d[cen_group]['x'] = temp.bin_centers()
             d[cen_group]['measurement'] = Measurement(unumpy.uarray(temp.values(), temp.errors()))
             d[cen_group]['count'] = temp.counts()
-    for d in [v1_y_lambda_merged, v1_y_lambdabar_merged]:
-        for cen_group in d.keys():
-            temp = SimpleProfile(unumpy.nominal_values(d[cen_group]['measurement'].get_measurement()),
-                                 d[cen_group]['count'],
-                                 unumpy.std_devs(d[cen_group]['measurement'].get_measurement())*np.sqrt(d[cen_group]['count']),
-                                 d[cen_group]['x'], use_edges=False)
-            temp.Rebin(2)
-            d[cen_group]['x'] = temp.bin_centers()
-            d[cen_group]['measurement'] = Measurement(unumpy.uarray(temp.values(), temp.errors()))
-            d[cen_group]['count'] = temp.counts()
 
     data_dict = {
                 # default stuff
