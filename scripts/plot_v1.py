@@ -249,16 +249,16 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         if method == 3: 
             d3v1dy3_lambda[cen - 1] = popt[1]
             d3v1dy3_lambda_err[cen - 1] = perr[1]
-            # if third order term is not significant, revert to 1st order fit
-            if abs(popt[1]) < perr[1]:
-                popt[0] = popt_first[0]
-                perr[0] = perr_first[0]
-                popt[1] = 0
-                perr[1] = 0
-                # d3v1dy3_lambda[cen - 1] = 0
-                # d3v1dy3_lambda_err[cen - 1] = 0
-                dv1dy_lambda[cen - 1] = popt_first[0]
-                dv1dy_lambda_err[cen - 1] = perr_first[0]
+            # sys_tag 6 cubic systematic: keep genuine cubic slope; significance handled in combine_sys
+            # if abs(popt[1]) < perr[1]:
+            #     popt[0] = popt_first[0]
+            #     perr[0] = perr_first[0]
+            #     popt[1] = 0
+            #     perr[1] = 0
+            #     # d3v1dy3_lambda[cen - 1] = 0
+            #     # d3v1dy3_lambda_err[cen - 1] = 0
+            #     dv1dy_lambda[cen - 1] = popt_first[0]
+            #     dv1dy_lambda_err[cen - 1] = perr_first[0]
         x_fit = np.linspace(-1, 1, 101)
         ax_1[(cen - 1) // 3, (cen - 1) % 3].plot(x_fit, fun(popt, x_fit), '-', color='C0')
         ax_1[(cen - 1) // 3, (cen - 1) % 3].annotate(r'$\Lambda$' + r' $d^3 v_1/dy^3$ ' + f'{ufloat(d3v1dy3_lambda[cen - 1], d3v1dy3_lambda_err[cen - 1])}',
@@ -328,16 +328,16 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         if method == 3: 
             d3v1dy3_lambdabar[cen - 1] = popt[1]
             d3v1dy3_lambdabar_err[cen - 1] = perr[1]
-            # if third order term is not significant, revert to 1st order fit
-            if abs(popt[1]) < perr[1]:
-                popt[0] = popt_first[0]
-                perr[0] = perr_first[0]
-                popt[1] = 0
-                perr[1] = 0
-                # d3v1dy3_lambdabar[cen - 1] = 0
-                # d3v1dy3_lambdabar_err[cen - 1] = 0
-                dv1dy_lambdabar[cen - 1] = popt_first[0]
-                dv1dy_lambdabar_err[cen - 1] = perr_first[0]
+            # sys_tag 6 cubic systematic: keep genuine cubic slope; significance handled in combine_sys
+            # if abs(popt[1]) < perr[1]:
+            #     popt[0] = popt_first[0]
+            #     perr[0] = perr_first[0]
+            #     popt[1] = 0
+            #     perr[1] = 0
+            #     # d3v1dy3_lambdabar[cen - 1] = 0
+            #     # d3v1dy3_lambdabar_err[cen - 1] = 0
+            #     dv1dy_lambdabar[cen - 1] = popt_first[0]
+            #     dv1dy_lambdabar_err[cen - 1] = perr_first[0]
         x_fit = np.linspace(-1, 1, 101)
         ax_1[(cen - 1) // 3, (cen - 1) % 3].plot(x_fit, fun(popt, x_fit), '-', color='C1')
         ax_1[(cen - 1) // 3, (cen - 1) % 3].annotate(r'$\bar{\Lambda}$' + r' $d^3 v_1/dy^3$ ' + f'{ufloat(d3v1dy3_lambdabar[cen - 1], d3v1dy3_lambdabar_err[cen - 1])}',
@@ -410,16 +410,16 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         if method == 3: 
             d3v1dy3_deltalambda[cen - 1] = popt[1]
             d3v1dy3_deltalambda_err[cen - 1] = perr[1]
-            # if third order term is not significant, revert to 1st order fit
-            if abs(popt[1]) < perr[1]:
-                popt[0] = popt_first[0]
-                perr[0] = perr_first[0]
-                popt[1] = 0
-                perr[1] = 0
-                # d3v1dy3_deltalambda[cen - 1] = 0
-                # d3v1dy3_deltalambda_err[cen - 1] = 0
-                dv1dy_deltalambda[cen - 1] = popt_first[0]
-                dv1dy_deltalambda_err[cen - 1] = perr_first[0]
+            # sys_tag 6 cubic systematic: keep genuine cubic slope; significance handled in combine_sys
+            # if abs(popt[1]) < perr[1]:
+            #     popt[0] = popt_first[0]
+            #     perr[0] = perr_first[0]
+            #     popt[1] = 0
+            #     perr[1] = 0
+            #     # d3v1dy3_deltalambda[cen - 1] = 0
+            #     # d3v1dy3_deltalambda_err[cen - 1] = 0
+            #     dv1dy_deltalambda[cen - 1] = popt_first[0]
+            #     dv1dy_deltalambda_err[cen - 1] = perr_first[0]
         x_fit = np.linspace(-1, 1, 101)
         ax_delta[(cen - 1) // 3, (cen - 1) % 3].plot(x_fit, fun(popt, x_fit), '-', color='C2')
         ax_delta[(cen - 1) // 3, (cen - 1) % 3].hlines(0., -1., 1., color='k', linestyle='--')
@@ -964,11 +964,12 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         if method == 3:
             d3 = popt[1]
             d3_err = perr[1]
-            if abs(popt[1]) < perr[1]:
-                popt[0] = popt_linear[0]
-                perr[0] = perr_linear[0]
-                popt[1] = 0
-                perr[1] = 0
+            # sys_tag 6 cubic systematic: keep genuine cubic slope; significance handled in combine_sys
+            # if abs(popt[1]) < perr[1]:
+            #     popt[0] = popt_linear[0]
+            #     perr[0] = perr_linear[0]
+            #     popt[1] = 0
+            #     perr[1] = 0
         if key not in dv1dy_lambda_merged.keys():
             dv1dy_lambda_merged[key] = {}
         dv1dy_lambda_merged[key]['value'] = popt[0]
@@ -1000,11 +1001,12 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         if method == 3:
             d3 = popt[1]
             d3_err = perr[1]
-            if abs(popt[1]) < perr[1]:
-                popt[0] = popt_linear[0]
-                perr[0] = perr_linear[0]
-                popt[1] = 0
-                perr[1] = 0
+            # sys_tag 6 cubic systematic: keep genuine cubic slope; significance handled in combine_sys
+            # if abs(popt[1]) < perr[1]:
+            #     popt[0] = popt_linear[0]
+            #     perr[0] = perr_linear[0]
+            #     popt[1] = 0
+            #     perr[1] = 0
         if key not in dv1dy_lambdabar_merged.keys():
             dv1dy_lambdabar_merged[key] = {}
         dv1dy_lambdabar_merged[key]['value'] = popt[0]
@@ -1038,11 +1040,12 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         if method == 3:
             d3 = popt[1]
             d3_err = perr[1]
-            if abs(popt[1]) < perr[1]:
-                popt[0] = popt_linear[0]
-                perr[0] = perr_linear[0]
-                popt[1] = 0
-                perr[1] = 0
+            # sys_tag 6 cubic systematic: keep genuine cubic slope; significance handled in combine_sys
+            # if abs(popt[1]) < perr[1]:
+            #     popt[0] = popt_linear[0]
+            #     perr[0] = perr_linear[0]
+            #     popt[1] = 0
+            #     perr[1] = 0
         if key not in dv1dy_deltalambda_merged.keys():
             dv1dy_deltalambda_merged[key] = {}
         dv1dy_deltalambda_merged[key]['value'] = popt[0]

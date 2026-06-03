@@ -73,8 +73,10 @@ class DataPoint:
             if len(self.value) != len(other.value):
                 raise ValueError("DataPoints must have the same length.")
             new_val = self.value * other.value
-            new_stat_err = np.sqrt((self.stat_error * other.value)**2 + (self.sys_error * other.value)**2)
-            new_sys_err = np.sqrt((self.sys_error * other.stat_error)**2 + (self.stat_error * other.sys_error)**2)
+            # error propagation for z = x*y, stat and sys propagated separately:
+            # (Dz)^2 = (y*Dx)^2 + (x*Dy)^2
+            new_stat_err = np.sqrt((self.stat_error * other.value)**2 + (other.stat_error * self.value)**2)
+            new_sys_err = np.sqrt((self.sys_error * other.value)**2 + (other.sys_error * self.value)**2)
         else:
             new_val = self.value * other
             new_stat_err = self.stat_error * abs(other)
@@ -125,10 +127,16 @@ class DataPoint:
     def average(self):
         """
         Calculate the average value of the data point. Use the inverse stat error squared as weights.
-        
+
         Returns:
-        ufloat: The average value with its uncertainty.
+        ufloat: The average value with its total uncertainty (statistical and systematic
+                combined in quadrature).
         """
         weights = 1 / self.stat_error**2
-        return ufloat(np.average(self.value, weights=weights), np.sqrt(1 / np.sum(weights)))
+        mean = np.average(self.value, weights=weights)
+        stat_err = np.sqrt(1 / np.sum(weights))
+        # systematic error of the weighted mean: per-point sys errors propagated as
+        # independent contributions through v_bar = sum(w_i v_i) / sum(w_i)
+        sys_err = np.sqrt(np.sum((weights * self.sys_error) ** 2)) / np.sum(weights)
+        return ufloat(mean, np.sqrt(stat_err ** 2 + sys_err ** 2))
         

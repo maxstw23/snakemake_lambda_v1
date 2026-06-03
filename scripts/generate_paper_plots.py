@@ -140,8 +140,7 @@ def calculate_chi2_per_ndf(data_points, model_points, nparams):
     """
     Calculate chi2 per ndf for the given data points and model points. Use total errors. 
     """
-    # chi2_array = (data_points - model_points).value**2 / (data_points.total_error()**2) # total error or stat only?
-    chi2_array = (data_points - model_points).value**2 / (data_points.stat_error**2)
+    chi2_array = (data_points - model_points).value**2 / (data_points.total_error()**2)
     ndf = len(data_points) - nparams
     chi2 = np.sum(chi2_array) / ndf
     return chi2
@@ -396,10 +395,17 @@ def plot_fig_2(dict_input, figs, input_path, **kwargs):
     gs_coal = fig_coal.add_gridspec(ncols=kwargs['ncols'], nrows=kwargs['nrows'], hspace=0, wspace=0)
     ax_coal = gs_coal.subplots(sharex='col', sharey='row')
     ax_coal = ax_coal.flatten()
-    scaling = {0: 2, 1: 2, 2: 2, 3: 2, 4: 2, 5: 1, 6: 1}
+    scaling = {0: 1, 1: 1, 2: 1, 3: 1, 4: 1, 5: 0.5, 6: 0.5}
     if kwargs['ncols'] == 3:
         scaling = {0: 4, 1: 2, 2: 2, 3: 2, 4: 1, 5: 1}
-    pikp_slopes = PikpMergedSlope().get_data()
+    # piKp source / output naming / per-particle cut labels are injectable so an
+    # alternative-cut dataset can be plotted without touching the default figure.
+    pikp_slopes = kwargs['pikp_data'] if kwargs.get('pikp_data') is not None else PikpMergedSlope().get_data()
+    output_suffix = kwargs.get('output_suffix', '')
+    cut_labels = kwargs.get('cut_labels', {
+        'Lambda': r'$0.4<p_{T}<1.8$',
+        'proton': r'$0.4<p_{T}<1.8$, $p<2.0$',
+        'kaon':   r'$0.28<p_{T}<1.2$, $p<1.6$'})
     # scaling = {ind: scaling[len(scaling) - 1 - ind] for ind in scaling}
     for i, f in enumerate(reversed(files)):
         datapoints = {}
@@ -456,9 +462,9 @@ def plot_fig_2(dict_input, figs, input_path, **kwargs):
 
         ax_coal[i].annotate(energy.split('GeV')[0] + ' GeV', xy=(0.85, 0.9), fontsize=18, xycoords='axes fraction', horizontalalignment='right')
         if scale != 1:
-            ax_coal[i].annotate(fr'$\times$ {scale}', xy=(0.2, 0.2), fontsize=15, xycoords='axes fraction', horizontalalignment='right')
+            ax_coal[i].annotate(fr'$\times$ {scale}', xy=(0.25, 0.2), fontsize=15, xycoords='axes fraction', horizontalalignment='right')
         ax_coal[i].hlines(0, 0, 80, linestyles='--', colors='k') 
-        ax_coal[i].set_ylim(-0.259, 0.179)
+        ax_coal[i].set_ylim(-0.149, 0.099)
 
     fig_coal.add_subplot(111, frameon=False)
     plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
@@ -467,18 +473,18 @@ def plot_fig_2(dict_input, figs, input_path, **kwargs):
     plt.ylabel(r'$\Delta dv_1/dy$', fontsize=18, labelpad=25)
     if kwargs['ncols'] == 4:
         index_legend = 7
-        ax_coal[index_legend].annotate('Au+Au', xy=(0.4, 0.7), fontsize=18, xycoords='axes fraction')
-        ax_coal[index_legend].errorbar([], [], yerr=[], **plot_config['Lambda'])
-        ax_coal[index_legend].errorbar([], [], yerr=[], **plot_config['proton'])
-        ax_coal[index_legend].errorbar([], [], yerr=[], **plot_config['kaon'])
+        ax_coal[index_legend].annotate('Au+Au', xy=(0.35, 0.88), fontsize=22, xycoords='axes fraction')
+        ax_coal[index_legend].annotate(r'$p_{T}$, $p$ in GeV/$c$', xy=(0.35, 0.80), fontsize=15, xycoords='axes fraction')
+        # legend labels: particle on line 1, kinematic range on line 2 (pT, p in GeV/c)
+        ax_coal[index_legend].errorbar([], [], yerr=[], **{k: v for k, v in plot_config['Lambda'].items() if k != 'label'}, label='\n'.join([r'$\Lambda^0-\bar{\Lambda}^0$', cut_labels['Lambda']]))
+        ax_coal[index_legend].errorbar([], [], yerr=[], **{k: v for k, v in plot_config['proton'].items() if k != 'label'}, label='\n'.join([r'$p-\bar{p}$', cut_labels['proton']]))
+        ax_coal[index_legend].errorbar([], [], yerr=[], **{k: v for k, v in plot_config['kaon'].items() if k != 'label'}, label='\n'.join([r'$K^+-K^-$', cut_labels['kaon']]))
         # ax_coal[index_legend].errorbar([], [], yerr=[], **plot_config['pion'])
         # ax_coal[index_legend].tick_params(axis='x', which='both', length=0)
-        ax_coal[index_legend].legend(fontsize=15, frameon=False, loc='center')
+        ax_coal[index_legend].legend(fontsize=14, frameon=False, loc='center')
         ax_coal[index_legend].tick_params(**tick_params)
         # ax_coal[index_legend].annotate(r'$\bf{STAR}\;\it{Preliminary}$', xy=(0.15, 0.8), xycoords='axes fraction', fontsize=20)
-        eff_label = _eff_corr_label(dict_input.get('eff_energies', []))
-        if eff_label:
-            ax_coal[index_legend].annotate(eff_label, xy=(0.05, 0.05), fontsize=10, xycoords='axes fraction', style='italic')
+
     else:
         index_legend = 0
         ax_coal[index_legend].annotate('Au+Au', xy=(0.4, 0.7), fontsize=18, xycoords='axes fraction')
@@ -492,9 +498,10 @@ def plot_fig_2(dict_input, figs, input_path, **kwargs):
         ax_coal[index_legend].tick_params(**tick_params)
 
     plt.figure(fig_coal.number)
-    plt.savefig(input_path.replace('_yaml', '').replace('/sys_tag_0', '') + '/fig_2.pdf')
-    # plt.savefig(input_path.replace('_yaml', '').replace('/sys_tag_0', '') + '/fig_2.eps', format='eps')
-    plt.savefig(input_path.replace('_yaml', '').replace('/sys_tag_0', '') + '/fig_2.svg', format='svg', transparent = True, bbox_inches = 'tight', pad_inches = 0)
+    _fig2_base = input_path.replace('_yaml', '').replace('/sys_tag_0', '') + f'/fig_2{output_suffix}'
+    plt.savefig(_fig2_base + '.pdf')
+    # plt.savefig(_fig2_base + '.eps', format='eps')
+    plt.savefig(_fig2_base + '.svg', format='svg', transparent = True, bbox_inches = 'tight', pad_inches = 0)
     figs.append(fig_coal)
     plt.close()
 
@@ -1581,21 +1588,21 @@ def plot_dv1dy_energy_dependence(dict_input, figs, input_path, proton_fit='linea
 
         ax_dep_1040 = ax_dep[1]
         ax_dep_1040.errorbar(np.array(energies)+0.2, datapoints['delta_lambdas_1040'].value, 
-                            yerr=datapoints['delta_lambdas_1040'].stat_error, **plot_config['Lambda'])
+                            yerr=datapoints['delta_lambdas_1040'].stat_error, **{k: v for k, v in plot_config['Lambda'].items() if k != 'label'}, label='\n'.join([r'$\Lambda^0-\bar{\Lambda}^0$', r'$0.4<p_{T}<1.8$']))
         for i, energy in enumerate(energies):
             ax_dep_1040.fill_between(np.array([energies[i]+0.2-0.15, energies[i]+0.2+0.15]),
                                     y1=datapoints['delta_lambdas_1040'].value[i] - datapoints['delta_lambdas_1040'].sys_error[i],
                                     y2=datapoints['delta_lambdas_1040'].value[i] + datapoints['delta_lambdas_1040'].sys_error[i],
                                     color=plot_config['Lambda']['color'], alpha=0.4, linewidth=0)
         ax_dep_1040.errorbar(np.array(energies)-0.2, datapoints['combo2_1040'].value,
-                                yerr=datapoints['combo2_1040'].stat_error, **plot_config['combo2'])    
+                                yerr=datapoints['combo2_1040'].stat_error, **{k: v for k, v in plot_config['combo2'].items() if k != 'label'}, label='\n'.join([r'$p-\bar{p}$', r'$0.4<p_{T}<1.8$, $p<2.0$']))    
         for i, energy in enumerate(energies):
             ax_dep_1040.fill_between(np.array([energies[i]-0.2-0.15, energies[i]-0.2+0.15]),
                                     y1=datapoints['combo2_1040'].value[i] - datapoints['combo2_1040'].sys_error[i],
                                     y2=datapoints['combo2_1040'].value[i] + datapoints['combo2_1040'].sys_error[i],
                                     color=plot_config['combo2']['color'], alpha=0.4, linewidth=0)
         ax_dep_1040.errorbar(np.array(energies), datapoints['combo1_1040'].value, 
-                            yerr=datapoints['combo1_1040'].stat_error, **plot_config['combo'])
+                            yerr=datapoints['combo1_1040'].stat_error, **{k: v for k, v in plot_config['combo'].items() if k != 'label'}, label='\n'.join([r'$(p-\bar{p})-(K^+-K^-)$', r'$0.28<p_{T}<1.2$, $p<1.6$']))
         for i, energy in enumerate(energies):
             ax_dep_1040.fill_between(np.array([energies[i]-0.15, energies[i]+0.15]),
                                     y1=datapoints['combo1_1040'].value[i] - datapoints['combo1_1040'].sys_error[i],
@@ -1612,14 +1619,14 @@ def plot_dv1dy_energy_dependence(dict_input, figs, input_path, proton_fit='linea
             ax_dep_1040.annotate('10-40%', xy=(0.45, 0.21), xycoords='axes fraction', fontsize=24)
             ax_dep_1040.annotate(fr'$\chi^2$/ndf (p) = {chi2ndf_2:.2f}', xy=(0.45, 0.14), xycoords='axes fraction', fontsize=18)
             ax_dep_1040.annotate(fr'$\chi^2$/ndf (p - K) = {chi2ndf_1:.2f}', xy=(0.45, 0.07), xycoords='axes fraction', fontsize=18)
-            ax_dep_1040.legend(loc='upper right', fontsize=20, frameon=False)
+            ax_dep_1040.legend(loc='upper right', fontsize=18, frameon=False, title=r'$p_{T}$, $p$ in GeV/$c$', title_fontsize=15)
         else:
             ax_dep_1040.annotate('10-40%', xy=(0.45, 0.55), xycoords='axes fraction', fontsize=20)
             ax_dep_1040.annotate(fr'$\chi^2$/ndf (p) = {chi2ndf_2:.2f}', xy=(0.45, 0.45), xycoords='axes fraction', fontsize=14)
             ax_dep_1040.annotate(fr'$\chi^2$/ndf (p - K) = {chi2ndf_1:.2f}', xy=(0.45, 0.35), xycoords='axes fraction', fontsize=14)
-            ax_dep_1040.legend(loc='upper right', fontsize=15, frameon=False)
+            ax_dep_1040.legend(loc='upper right', fontsize=13, frameon=False, title=r'$p_{T}$, $p$ in GeV/$c$', title_fontsize=13)
         ax_dep_1040.tick_params(**tick_params)
-        ax_dep_1040.set_ylim(ax_dep_1040.get_ylim()[0], 0.0799)
+        ax_dep_1040.set_ylim(ax_dep_1040.get_ylim()[0], 0.0849)
         ax_dep_1040.yaxis.set_major_locator(ticker.MultipleLocator(0.02))
         
         ax_dep_4080 = ax_dep[2]
@@ -1655,7 +1662,7 @@ def plot_dv1dy_energy_dependence(dict_input, figs, input_path, proton_fit='linea
             ax_dep_4080.annotate('40-80%', xy=(0.45, 0.85), xycoords='axes fraction', fontsize=24)
             ax_dep_4080.annotate(fr'$\chi^2$/ndf (p) = {chi2ndf_2:.2f}', xy=(0.45, 0.78), xycoords='axes fraction', fontsize=18)
             ax_dep_4080.annotate(fr'$\chi^2$/ndf (p - K) = {chi2ndf_1:.2f}', xy=(0.45, 0.71), xycoords='axes fraction', fontsize=18)
-            ax_dep_4080.set_ylim(-0.0399, 0.0799)
+            ax_dep_4080.set_ylim(-0.0399, 0.0849)
         else:
             ax_dep_4080.annotate('40-80%', xy=(0.45, 0.85), xycoords='axes fraction', fontsize=20)
             ax_dep_4080.annotate(fr'$\chi^2$/ndf (p) = {chi2ndf_2:.2f}', xy=(0.45, 0.75), xycoords='axes fraction', fontsize=14)

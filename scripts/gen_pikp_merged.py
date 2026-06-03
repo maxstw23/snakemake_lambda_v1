@@ -1,13 +1,20 @@
 """
-Generate pikp_merged.py from Etabins_20_Coalescence txt datapoint files.
+Generate a pikp_merged-style data module from Etabins txt datapoint files.
 Run from the project root:
-    python scripts/gen_pikp_merged.py
+    python scripts/gen_pikp_merged.py                       # default (Coalescence cuts)
+    python scripts/gen_pikp_merged.py --txt_dir <dir> --out scripts/pikp_merged_altcuts.py
 """
 
+import argparse
 import re
 import pathlib
 
-TXT_DIR = pathlib.Path("Etabins_20_Coalescence/Etabins_20_Coalescence_ymp6top6/txtfiles")
+# Default source = the Coalescence (default-cut) dataset feeding scripts/pikp_merged.py
+DEFAULT_TXT_DIR = pathlib.Path(
+    "Etabins_20_Coalescence/"
+    "Etabins_20_Coalescence_ymp6top6_withMCeffandTOFcorrection/txtfiles"
+)
+DEFAULT_OUT = pathlib.Path("scripts/pikp_merged.py")
 
 # Map txt-file energy prefix → pikp_merged.py key
 ENERGY_MAP = {
@@ -46,9 +53,13 @@ def parse_txt(path):
         d[f"neg_{fit}"]          = parse_array(content, f"v1_vCent_Seln_{fit}")
         d[f"neg_{fit}_err"]      = parse_array(content, f"v1_vCent_Seln_{fit}_err")
         d[f"neg_{fit}_systematics"] = parse_array(content, f"v1_vCent_Seln_{fit}_systematics")
-        d[f"delta_{fit}"]        = parse_array(content, f"deltav1_vCent_{fit}")
-        d[f"delta_{fit}_err"]    = parse_array(content, f"deltav1_vCent_{fit}_err")
-        d[f"delta_{fit}_systematics"] = parse_array(content, f"deltav1_vCent_{fit}_systematics")
+        # Use ddeltav1dy (slope of the v1_pos - v1_neg difference, i.e. take the
+        # difference between v1(y) first and then fit a straight line) to match the
+        # Lambda pipeline, which subtracts Lambda - Lambdabar before fitting dv1/dy.
+        # The fit-then-diff variant (delta_dv1dy_vCent_{fit}) is deliberately not used.
+        d[f"delta_{fit}"]        = parse_array(content, f"ddeltav1dy_vCent_{fit}")
+        d[f"delta_{fit}_err"]    = parse_array(content, f"ddeltav1dy_vCent_{fit}_err")
+        d[f"delta_{fit}_systematics"] = parse_array(content, f"ddeltav1dy_vCent_{fit}_systematics")
 
         pos_comb  = parse_array(content, f"v1slopes_{fit}_combinedcent_pos")
         pos_comb_err  = parse_array(content, f"v1slopes_{fit}_combinedcent_pos_err")
@@ -84,13 +95,14 @@ def fmt_dict(d):
     return "{" + items + "}"
 
 
-def main():
+def main(txt_dir=DEFAULT_TXT_DIR, out=DEFAULT_OUT):
+    txt_dir = pathlib.Path(txt_dir)
     # Collect all data
     data = {}
     for txt_energy, py_energy in ENERGY_MAP.items():
         data[py_energy] = {}
         for particle in PARTICLES:
-            path = TXT_DIR / f"{txt_energy}_{particle}_datapoints.txt"
+            path = txt_dir / f"{txt_energy}_{particle}_datapoints.txt"
             data[py_energy][particle] = parse_txt(path)
 
     # Render pikp_merged.py
@@ -126,10 +138,14 @@ def main():
         "        return self.data",
     ]
 
-    out = pathlib.Path("scripts/pikp_merged.py")
+    out = pathlib.Path(out)
     out.write_text("\n".join(lines) + "\n")
     print(f"Written: {out}")
 
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--txt_dir", default=str(DEFAULT_TXT_DIR))
+    ap.add_argument("--out", default=str(DEFAULT_OUT))
+    args = ap.parse_args()
+    main(txt_dir=args.txt_dir, out=args.out)

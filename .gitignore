@@ -9,3 +9,4 @@
 /Etabins_20*
 __pycache__/
 *.pyc
+.claude/

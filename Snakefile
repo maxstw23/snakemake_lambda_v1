@@ -28,13 +28,23 @@ wildcard_constraints:
     sys_tag='[0-9]+',
 
 _eff_plot_targets = (
-    [f'plots/sys_tag_0/eff_vs_pt_lambda_{e}.png' for e in eff_files] +
-    [f'plots/sys_tag_0/eff_vs_pt_lambdabar_{e}.png' for e in eff_files_lambdabar]
+    [f'plots/eff_qa/eff_vs_pt_lambda_{e}.png'     for e in eff_files] +
+    [f'plots/eff_qa/eff_vs_pt_lambdabar_{e}.png'  for e in eff_files_lambdabar] +
+    [f'plots/eff_qa/eff_yslices_lambda_{e}.png'    for e in eff_files] +
+    [f'plots/eff_qa/eff_yslices_lambdabar_{e}.png' for e in eff_files_lambdabar]
 )
+# Alternative-cut (different proton/kaon pT ranges) versions of fig 2 & 3
+_alt_fig_targets = [
+    'plots/paper/fig_2_altcuts.pdf',
+    'plots/paper/fig_3_horizontal_altcuts.pdf',        # 40-80% layout
+    'plots/paper/fig_3_horizontal_5080_altcuts.pdf',   # 50-80% layout
+]
+
 rule all:
     input:
         'plots/paper/report.pdf',
-        _eff_plot_targets
+        _eff_plot_targets,
+        _alt_fig_targets
 
 # rule generate_report:
 #     input: expand('plots/dv1a1dy_{energy}.pdf', energy=energies),
@@ -94,10 +104,12 @@ rule plot_efficiency:
     input:
         eff_file='result/eff/efficiency_{particle}_{energy}.root',
         script='scripts/plot_eff_vs_pt.py'
-    output: 'plots/sys_tag_0/eff_vs_pt_{particle}_{energy}.png'
+    output:
+        integrated='plots/eff_qa/eff_vs_pt_{particle}_{energy}.png',
+        yslices='plots/eff_qa/eff_yslices_{particle}_{energy}.png'
     shell:
         """
-        python {input.script} --eff_file {input.eff_file} --particle {wildcards.particle} --energy {wildcards.energy} --output {output}
+        python {input.script} --eff_file {input.eff_file} --particle {wildcards.particle} --energy {wildcards.energy} --output {output.integrated} --output_yslices {output.yslices}
         """
 
 def get_combined_file(wildcards):
@@ -488,7 +500,10 @@ rule combine_sys:
            default='plots/sys_tag_0/paper_yaml/dv1dy_coal_{energy}.yaml',
            # regular_sys='result/blank/{energy}.txt',
            regular_sys=lambda wildcards: expand('plots/sys_tag_{sys_tag}/paper_yaml/dv1dy_coal_{energy}.yaml', sys_tag=[1,2,3], energy=wildcards.energy),
-           special_sys=lambda wildcards: expand('plots/special_sys_tag_{sys_tag}/paper_yaml/dv1dy_coal_{energy}.yaml', sys_tag=[5,6], energy=wildcards.energy)
+           # tag 6 (cubic fit-order) removed: dominated by cubic overfitting on thin
+           # peripheral/low-energy data (Δ up to ~0.09, 2-9x the slope) rather than a
+           # genuine fit-order systematic. tag 5 = half-y range, tag 7 = y-integrated eff.
+           special_sys=lambda wildcards: expand('plots/special_sys_tag_{sys_tag}/paper_yaml/dv1dy_coal_{energy}.yaml', sys_tag=[5,7], energy=wildcards.energy)
     output: 'plots/final/paper_yaml/dv1dy_coal_{energy}.yaml'
     params:
         sys_divisor = config['sys_divisor']
@@ -523,6 +538,48 @@ rule generate_paper_plots:
         python {input.script} --input_invmass {input.invmass} --input_v1fit {input.v1fit} --input_res {input.res} --input_dv1dy_coal {input.dv1dy_coal} --input_dv1dy_coal_xi {input.dv1dy_coal_xi} --model_sim_urqmd {input.model_sim_urqmd} --model_sim_ampt {input.model_sim_ampt} --eff_energies {params.eff_energies} --output {output.report}
         python {input.script_clean} {input.invmass} {input.v1fit} > {log.stdout} 2> {log.stderr}
         """
+
+# ---- Alternative proton/kaon pT-cut dataset (fig 2 & 3); does NOT touch defaults ----
+ALT_PIKP_TXTDIR = 'Etabins_20_Coalescence/Etabins_20_ymp6top6_withMCeffandTOFcorrection/txtfiles'
+
+rule gen_pikp_altcuts:
+    """Build the alternative-cut piKp data module from the new dataset's txt files."""
+    input:
+        script='scripts/gen_pikp_merged.py',
+        txt=glob.glob(f'{ALT_PIKP_TXTDIR}/*_datapoints.txt')
+    output: 'scripts/pikp_merged_altcuts.py'
+    shell:
+        'python {input.script} --txt_dir "%s" --out {output}' % ALT_PIKP_TXTDIR
+
+rule fig2_altcuts:
+    input:
+        script='scripts/gen_fig2.py',
+        pikp='scripts/pikp_merged_altcuts.py',
+        gpp='scripts/generate_paper_plots.py',
+        yamls=expand('plots/final/paper_yaml/dv1dy_coal_{energy}.yaml', energy=energies)
+    output: 'plots/paper/fig_2_altcuts.pdf'
+    log: stdout='logs/final/fig2_altcuts.log', stderr='logs/final/fig2_altcuts.err'
+    shell:
+        'python {input.script} --input_dv1dy_coal {input.yamls}'
+        ' --pikp_module pikp_merged_altcuts --cut_set altcuts --output_suffix _altcuts'
+        ' > {log.stdout} 2> {log.stderr}'
+
+rule fig3_altcuts:
+    """Both layouts (40-80% and 50-80%) of fig 3 with the alternative-cut piKp data."""
+    input:
+        script='scripts/fig3_5080.py',
+        pikp='scripts/pikp_merged_altcuts.py',
+        gpp='scripts/generate_paper_plots.py',
+        yamls=expand('plots/final/paper_yaml/dv1dy_coal_{energy}.yaml', energy=energies)
+    output:
+        'plots/paper/fig_3_horizontal_altcuts.pdf',
+        'plots/paper/fig_3_horizontal_5080_altcuts.pdf'
+    log: stdout='logs/final/fig3_altcuts.log', stderr='logs/final/fig3_altcuts.err'
+    shell:
+        'python {input.script} --input_dv1dy_coal {input.yamls} --high_cent 4080'
+        ' --pikp_module pikp_merged_altcuts --cut_set altcuts > {log.stdout} 2> {log.stderr}\n'
+        'python {input.script} --input_dv1dy_coal {input.yamls} --high_cent 5080'
+        ' --pikp_module pikp_merged_altcuts --cut_set altcuts >> {log.stdout} 2>> {log.stderr}'
 
 rule test_fit_order:
     """Diagnostic: check whether cubic dv1/dy fit is needed within |y| < y_cut.

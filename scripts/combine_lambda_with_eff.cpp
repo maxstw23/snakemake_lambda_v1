@@ -157,7 +157,9 @@ void combine_lambda_with_eff(std::string inputDir="./", std::string outputDir=".
                 float eff_weight_e = 1.0 / eff_val_e;
 
                 TProfile *p1 = (TProfile *)f.Get(Form("h%s_EPD_%s_pt_%d_%d_%d", particle_upper.c_str(), flow_case.c_str(), cen, ybin, i));
-                pout_pt_east[cen][pt_idx]->Add(pout_pt_east[cen][pt_idx], p1, 1.0, sign_flip);
+                // sign_flip folds the odd v1 across y; eff_weight_e corrects the y-folding
+                // (TProfile::Add scales sum(wy) by signed c, entries by |c| -> eff-weighted, flipped mean)
+                pout_pt_east[cen][pt_idx]->Add(pout_pt_east[cen][pt_idx], p1, 1.0, sign_flip * eff_weight_e);
                 puncorrected_pt_east[cen][pt_idx]->Add(puncorrected_pt_east[cen][pt_idx], p1, 1.0, 1.0);
 
                 TH1D *h1 = (TH1D *)f.Get(Form("h%sM_cen_y_pt_%d_%d_%d", particle_upper.c_str(), cen, ybin, i));
@@ -188,7 +190,8 @@ void combine_lambda_with_eff(std::string inputDir="./", std::string outputDir=".
                 float eff_weight_w = 1.0 / eff_val_w;
 
                 TProfile *p1 = (TProfile *)f.Get(Form("h%s_EPD_%s_pt_%d_%d_%d", particle_upper.c_str(), flow_case.c_str(), cen, ybin, i));
-                pout_pt_west[cen][pt_idx]->Add(pout_pt_west[cen][pt_idx], p1, 1.0, 1.0);
+                // eff_weight_w corrects the y-folding (consistent with east and with v1(y))
+                pout_pt_west[cen][pt_idx]->Add(pout_pt_west[cen][pt_idx], p1, 1.0, eff_weight_w);
                 puncorrected_pt_west[cen][pt_idx]->Add(puncorrected_pt_west[cen][pt_idx], p1, 1.0, 1.0);
 
                 TH1D *h1 = (TH1D *)f.Get(Form("h%sM_cen_y_pt_%d_%d_%d", particle_upper.c_str(), cen, ybin, i));

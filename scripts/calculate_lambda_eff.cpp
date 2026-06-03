@@ -28,16 +28,16 @@ void calculate_lambda_eff(const char* inputPath, const char* outputPath, double 
     }
 
     for (int cen = 0; cen <= 8; ++cen) {
-        TH2D *hMC2D   = (TH2D*)fIn->Get(Form("hMCParPtEta_%d",       cen));
-        TH2D *hReco2D = (TH2D*)fIn->Get(Form("hKFPRecoParPtEta_%d",   cen));
+        TH2D *hMC2D   = (TH2D*)fIn->Get(Form("hMCParPtY_%d",       cen));
+        TH2D *hReco2D = (TH2D*)fIn->Get(Form("hKFPRecoParPtY_%d",   cen));
 
         if (!hMC2D || !hReco2D) continue;
 
-        // Project onto pT axis restricted to |eta| < y_cut
-        int eta_lo = hMC2D->GetYaxis()->FindBin(-y_cut + 1e-9);
-        int eta_hi = hMC2D->GetYaxis()->FindBin( y_cut - 1e-9);
-        TH1D *hMC   = hMC2D->ProjectionX(Form("hMCPt_cen%d",   cen), eta_lo, eta_hi);
-        TH1D *hReco = hReco2D->ProjectionX(Form("hRecoPt_cen%d", cen), eta_lo, eta_hi);
+        // Project onto pT axis restricted to |y| < y_cut
+        int y_lo = hMC2D->GetYaxis()->FindBin(-y_cut + 1e-9);
+        int y_hi = hMC2D->GetYaxis()->FindBin( y_cut - 1e-9);
+        TH1D *hMC   = hMC2D->ProjectionX(Form("hMCPt_cen%d",   cen), y_lo, y_hi);
+        TH1D *hReco = hReco2D->ProjectionX(Form("hRecoPt_cen%d", cen), y_lo, y_hi);
         hMC->SetDirectory(0);
         hReco->SetDirectory(0);
 
@@ -81,15 +81,15 @@ void calculate_lambda_eff(const char* inputPath, const char* outputPath, double 
         if (yhi <= -y_cut + 1e-9 || ylo >= y_cut - 1e-9) continue;
 
         for (int cen = 0; cen <= 8; ++cen) {
-            TH2D *hMC2D   = (TH2D*)fIn->Get(Form("hMCParPtEta_%d",     cen));
-            TH2D *hReco2D = (TH2D*)fIn->Get(Form("hKFPRecoParPtEta_%d", cen));
+            TH2D *hMC2D   = (TH2D*)fIn->Get(Form("hMCParPtY_%d",     cen));
+            TH2D *hReco2D = (TH2D*)fIn->Get(Form("hKFPRecoParPtY_%d", cen));
             if (!hMC2D || !hReco2D) continue;
 
-            int eta_lo_bin = hMC2D->GetYaxis()->FindBin(ylo + 1e-9);
-            int eta_hi_bin = hMC2D->GetYaxis()->FindBin(yhi - 1e-9);
+            int y_lo_bin = hMC2D->GetYaxis()->FindBin(ylo + 1e-9);
+            int y_hi_bin = hMC2D->GetYaxis()->FindBin(yhi - 1e-9);
 
-            TH1D *hMC_y   = hMC2D->ProjectionX(Form("hMCPt_cen%d_ybin%d",   cen, ybin), eta_lo_bin, eta_hi_bin);
-            TH1D *hReco_y = hReco2D->ProjectionX(Form("hRecoPt_cen%d_ybin%d", cen, ybin), eta_lo_bin, eta_hi_bin);
+            TH1D *hMC_y   = hMC2D->ProjectionX(Form("hMCPt_cen%d_ybin%d",   cen, ybin), y_lo_bin, y_hi_bin);
+            TH1D *hReco_y = hReco2D->ProjectionX(Form("hRecoPt_cen%d_ybin%d", cen, ybin), y_lo_bin, y_hi_bin);
             hMC_y->SetDirectory(0);
             hReco_y->SetDirectory(0);
 

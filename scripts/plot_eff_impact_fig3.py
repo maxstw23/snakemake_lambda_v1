@@ -34,8 +34,10 @@ ENERGY_PIKP = {e: (f"{int(ENERGY_FLOAT[e])}GeV" if ENERGY_FLOAT[e] == int(ENERGY
                else f"{ENERGY_FLOAT[e]}GeV") for e in ENERGIES}
 
 # centrality bin groups (1-indexed, matching plot_v1.py convention)
-MERGED_CENS = {'010': [8, 9], '1040': [5, 6, 7], '4080': [1, 2, 3, 4]}
-CENT_LABELS = {'010': '0-10%', '1040': '10-40%', '4080': '40-80%'}
+BIN_GROUPS = {'010': [8, 9], '1040': [5, 6, 7], '4080': [1, 2, 3, 4], '5080': [1, 2, 3]}
+CENT_LABELS = {'010': '0-10%', '1040': '10-40%', '4080': '40-80%', '5080': '50-80%'}
+# the third panel can show either 40-80% (default) or 50-80%
+HIGH_CENT_CHOICES = ['4080', '5080']
 
 PLOT_CFG = {
     'no_eff': dict(fmt='s', color='C1', capsize=2, ms=6, label=r'$\Delta\Lambda$ no-eff'),
@@ -120,10 +122,11 @@ def per_bin_delta(lam_csv: str, lbar_csv: str, fres_path: str) -> tuple:
 
 
 def merge_bins(delta: np.ndarray, delta_err: np.ndarray,
-               cen_mask: np.ndarray) -> dict[str, tuple[float, float]]:
+               cen_mask: np.ndarray,
+               merged_cens: dict[str, list[int]]) -> dict[str, tuple[float, float]]:
     """Inverse-variance weighted average over each merged centrality range."""
     result = {}
-    for key, bins in MERGED_CENS.items():
+    for key, bins in merged_cens.items():
         idxs = [b - 1 for b in bins if cen_mask[b - 1] and delta_err[b - 1] < 1e6]
         if not idxs:
             result[key] = (np.nan, np.nan)
@@ -140,7 +143,10 @@ def merge_bins(delta: np.ndarray, delta_err: np.ndarray,
 # ---------------------------------------------------------------------------
 
 def main(yaml_files: list[str], no_eff_csvs: list[str],
-         data_files: list[str], output: str) -> None:
+         data_files: list[str], output: str, high_cent: str = '4080') -> None:
+
+    panel_keys = ['010', '1040', high_cent]
+    MERGED_CENS = {k: BIN_GROUPS[k] for k in panel_keys}
 
     yaml_by_energy = {}
     for f in yaml_files:
@@ -180,7 +186,7 @@ def main(yaml_files: list[str], no_eff_csvs: list[str],
             try:
                 delta, delta_err, cen_mask = per_bin_delta(
                     csv_lam[energy], csv_lbar[energy], res_by_energy[energy])
-                merged = merge_bins(delta, delta_err, cen_mask)
+                merged = merge_bins(delta, delta_err, cen_mask, MERGED_CENS)
                 for key in MERGED_CENS:
                     data[key]['no_eff'].append(merged[key][0])
                     data[key]['no_eff_err'].append(merged[key][1])
@@ -215,7 +221,7 @@ def main(yaml_files: list[str], no_eff_csvs: list[str],
     fig, axes = plt.subplots(3, 1, figsize=(8, 12), sharex=True)
     fig.subplots_adjust(hspace=0)
 
-    for ax, key in zip(axes, ['010', '1040', '4080']):
+    for ax, key in zip(axes, panel_keys):
         d = data[key]
         for series, label_key in [('eff', 'eff'), ('no_eff', 'no_eff'), ('combo', 'combo')]:
             vals = np.array(d[series], dtype=float)
@@ -260,5 +266,8 @@ if __name__ == '__main__':
     parser.add_argument('--no_eff_csvs', nargs='+', required=True)
     parser.add_argument('--data_files',  nargs='+', required=True)
     parser.add_argument('--output',      required=True)
+    parser.add_argument('--high_cent',   default='4080', choices=HIGH_CENT_CHOICES,
+                        help='centrality range for the third panel (default: 4080)')
     args = parser.parse_args()
-    main(args.yaml_files, args.no_eff_csvs, args.data_files, args.output)
+    main(args.yaml_files, args.no_eff_csvs, args.data_files, args.output,
+         high_cent=args.high_cent)
