@@ -136,6 +136,11 @@ def show_figure(fig):
     fig.set_canvas(new_manager.canvas)
 
 
+# Fixed y-range shared by all fig_3 variants (4080/5080 x default/alt) so their
+# annotation/line/legend positions and axis scale are mutually consistent.
+FIG3_YLIM = (-0.07, 0.10)
+
+
 def calculate_chi2_per_ndf(data_points, model_points, nparams):
     """
     Calculate chi2 per ndf for the given data points and model points. Use total errors. 
@@ -1621,12 +1626,11 @@ def plot_dv1dy_energy_dependence(dict_input, figs, input_path, proton_fit='linea
             ax_dep_1040.annotate(fr'$\chi^2$/ndf (p - K) = {chi2ndf_1:.2f}', xy=(0.45, 0.07), xycoords='axes fraction', fontsize=18)
             ax_dep_1040.legend(loc='upper right', fontsize=18, frameon=False, title=r'$p_{T}$, $p$ in GeV/$c$', title_fontsize=15)
         else:
-            ax_dep_1040.annotate('10-40%', xy=(0.45, 0.55), xycoords='axes fraction', fontsize=20)
-            ax_dep_1040.annotate(fr'$\chi^2$/ndf (p) = {chi2ndf_2:.2f}', xy=(0.45, 0.45), xycoords='axes fraction', fontsize=14)
-            ax_dep_1040.annotate(fr'$\chi^2$/ndf (p - K) = {chi2ndf_1:.2f}', xy=(0.45, 0.35), xycoords='axes fraction', fontsize=14)
+            ax_dep_1040.annotate('10-40%', xy=(0.2, 0.85), xycoords='axes fraction', fontsize=20)
+            ax_dep_1040.annotate(fr'$\chi^2$/ndf (p) = {chi2ndf_2:.2f}', xy=(0.2, 0.75), xycoords='axes fraction', fontsize=14)
+            ax_dep_1040.annotate(fr'$\chi^2$/ndf (p - K) = {chi2ndf_1:.2f}', xy=(0.2, 0.65), xycoords='axes fraction', fontsize=14)
             ax_dep_1040.legend(loc='upper right', fontsize=13, frameon=False, title=r'$p_{T}$, $p$ in GeV/$c$', title_fontsize=13)
         ax_dep_1040.tick_params(**tick_params)
-        ax_dep_1040.set_ylim(ax_dep_1040.get_ylim()[0], 0.0849)
         ax_dep_1040.yaxis.set_major_locator(ticker.MultipleLocator(0.02))
         
         ax_dep_4080 = ax_dep[2]
@@ -1662,7 +1666,6 @@ def plot_dv1dy_energy_dependence(dict_input, figs, input_path, proton_fit='linea
             ax_dep_4080.annotate('40-80%', xy=(0.45, 0.85), xycoords='axes fraction', fontsize=24)
             ax_dep_4080.annotate(fr'$\chi^2$/ndf (p) = {chi2ndf_2:.2f}', xy=(0.45, 0.78), xycoords='axes fraction', fontsize=18)
             ax_dep_4080.annotate(fr'$\chi^2$/ndf (p - K) = {chi2ndf_1:.2f}', xy=(0.45, 0.71), xycoords='axes fraction', fontsize=18)
-            ax_dep_4080.set_ylim(-0.0399, 0.0849)
         else:
             ax_dep_4080.annotate('40-80%', xy=(0.45, 0.85), xycoords='axes fraction', fontsize=20)
             ax_dep_4080.annotate(fr'$\chi^2$/ndf (p) = {chi2ndf_2:.2f}', xy=(0.45, 0.75), xycoords='axes fraction', fontsize=14)
@@ -1670,6 +1673,14 @@ def plot_dv1dy_energy_dependence(dict_input, figs, input_path, proton_fit='linea
         ax_dep_4080.tick_params(**tick_params)
         ax_dep_4080.set_xticks(energies, labels=energies)
         ax_dep_4080.yaxis.set_major_locator(ticker.MultipleLocator(0.02))
+
+        # horizontal: fixed shared range so all fig_3 variants line up (sharey='row').
+        # vertical: keep per-panel data-driven scaling (original behavior).
+        if is_horizontal:
+            for _axd in (ax_dep_010, ax_dep_1040, ax_dep_4080):
+                _axd.set_ylim(*FIG3_YLIM)
+        else:
+            ax_dep_1040.set_ylim(ax_dep_1040.get_ylim()[0], 0.0849)
 
         # labels
         fig_dep.add_subplot(111, frameon=False)

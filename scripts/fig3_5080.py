@@ -28,7 +28,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 from data_point import DataPoint
-from generate_paper_plots import plot_config, tick_params
+from generate_paper_plots import plot_config, tick_params, FIG3_YLIM
 
 PIKP_CORRESPONDENCE = {'pions': ['piplus', 'piminus'],
                        'kaons': ['kplus', 'kminus'],
@@ -145,22 +145,25 @@ def make_figure(datapoints, energies, output_dir, high_cent, suffix, cut_labels)
                 ax.annotate(fr'$\chi^2$/ndf (p) = {chi2_p:.2f}', xy=(0.45, ypos - 0.07), xycoords='axes fraction', fontsize=18)
                 ax.annotate(fr'$\chi^2$/ndf (p - K) = {chi2_pk:.2f}', xy=(0.45, ypos - 0.14), xycoords='axes fraction', fontsize=18)
             else:
-                ypos = 0.55 if cent == '1040' else 0.85
-                ax.annotate(cent_title[cent], xy=(0.45, ypos), xycoords='axes fraction', fontsize=20)
-                ax.annotate(fr'$\chi^2$/ndf (p) = {chi2_p:.2f}', xy=(0.45, ypos - 0.10), xycoords='axes fraction', fontsize=14)
-                ax.annotate(fr'$\chi^2$/ndf (p - K) = {chi2_pk:.2f}', xy=(0.45, ypos - 0.20), xycoords='axes fraction', fontsize=14)
+                # vertical 10-40% panel annotations sit upper-left at (0.2, 0.85)
+                xpos = 0.2 if cent == '1040' else 0.45
+                ypos = 0.85
+                ax.annotate(cent_title[cent], xy=(xpos, ypos), xycoords='axes fraction', fontsize=20)
+                ax.annotate(fr'$\chi^2$/ndf (p) = {chi2_p:.2f}', xy=(xpos, ypos - 0.10), xycoords='axes fraction', fontsize=14)
+                ax.annotate(fr'$\chi^2$/ndf (p - K) = {chi2_pk:.2f}', xy=(xpos, ypos - 0.20), xycoords='axes fraction', fontsize=14)
 
         # the 10-40% panel (axes[1]) carries the legend; title states the units
-        axes[1].legend(loc='upper right', fontsize=15 if is_horizontal else 12,
-                       frameon=False, title=r'$p_{T}$, $p$ in GeV/$c$', title_fontsize=13)
+        axes[1].legend(loc='upper right', fontsize=18 if is_horizontal else 13,
+                       frameon=False, title=r'$p_{T}$, $p$ in GeV/$c$',
+                       title_fontsize=15 if is_horizontal else 13)
 
+        # horizontal: one fixed shared range so the four variants line up.
+        # vertical: per-panel data-driven scaling (no forced common range).
         def _ylim(lo, hi, pad_lo=0.12, pad_hi=0.40):
             span = hi - lo
             return lo - pad_lo * span, hi + pad_hi * span
         if is_horizontal:
-            lo = min(v[0] for v in extents.values())
-            hi = max(v[1] for v in extents.values())
-            axes[0].set_ylim(*_ylim(lo, hi))
+            axes[0].set_ylim(*FIG3_YLIM)
         else:
             for ax, cent in zip(axes, cent_ranges):
                 ax.set_ylim(*_ylim(*extents[cent], pad_hi=0.5))

@@ -36,8 +36,9 @@ _eff_plot_targets = (
 # Alternative-cut (different proton/kaon pT ranges) versions of fig 2 & 3
 _alt_fig_targets = [
     'plots/paper/fig_2_altcuts.pdf',
-    'plots/paper/fig_3_horizontal_altcuts.pdf',        # 40-80% layout
-    'plots/paper/fig_3_horizontal_5080_altcuts.pdf',   # 50-80% layout
+    'plots/paper/fig_3_horizontal_5080.pdf',           # default cuts, 50-80%
+    'plots/paper/fig_3_horizontal_altcuts.pdf',        # alt cuts, 40-80%
+    'plots/paper/fig_3_horizontal_5080_altcuts.pdf',   # alt cuts, 50-80%
 ]
 
 rule all:
@@ -564,20 +565,25 @@ rule fig2_altcuts:
         ' --pikp_module pikp_merged_altcuts --cut_set altcuts --output_suffix _altcuts'
         ' > {log.stdout} 2> {log.stderr}'
 
-rule fig3_altcuts:
-    """Both layouts (40-80% and 50-80%) of fig 3 with the alternative-cut piKp data."""
+rule fig3_variants:
+    """fig 3 variants produced by the unified generator (consistent layout/ylim):
+    default 50-80%, and alternative-cut 40-80% & 50-80%. The default 40-80%
+    (fig_3_horizontal.pdf) is produced by generate_paper_plots with matching layout."""
     input:
         script='scripts/fig3_5080.py',
         pikp='scripts/pikp_merged_altcuts.py',
         gpp='scripts/generate_paper_plots.py',
         yamls=expand('plots/final/paper_yaml/dv1dy_coal_{energy}.yaml', energy=energies)
     output:
+        'plots/paper/fig_3_horizontal_5080.pdf',
         'plots/paper/fig_3_horizontal_altcuts.pdf',
         'plots/paper/fig_3_horizontal_5080_altcuts.pdf'
-    log: stdout='logs/final/fig3_altcuts.log', stderr='logs/final/fig3_altcuts.err'
+    log: stdout='logs/final/fig3_variants.log', stderr='logs/final/fig3_variants.err'
     shell:
+        'python {input.script} --input_dv1dy_coal {input.yamls} --high_cent 5080'
+        ' --cut_set default > {log.stdout} 2> {log.stderr}\n'
         'python {input.script} --input_dv1dy_coal {input.yamls} --high_cent 4080'
-        ' --pikp_module pikp_merged_altcuts --cut_set altcuts > {log.stdout} 2> {log.stderr}\n'
+        ' --pikp_module pikp_merged_altcuts --cut_set altcuts >> {log.stdout} 2>> {log.stderr}\n'
         'python {input.script} --input_dv1dy_coal {input.yamls} --high_cent 5080'
         ' --pikp_module pikp_merged_altcuts --cut_set altcuts >> {log.stdout} 2>> {log.stderr}'
 
