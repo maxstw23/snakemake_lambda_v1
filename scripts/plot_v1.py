@@ -54,6 +54,8 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         fun = func_wrapper_3rd
     if kwargs["sys_tag"] == '5':
         range = 'half' # use only the positive y range for fitting as a systematic check
+    if kwargs["sys_tag"] == '8':
+        range = 'half_neg' # use only the negative y range for fitting (paired with tag 5 for the y-range systematic)
 
     # prefix for output path
     prefix = 'special_' if float(kwargs["sys_tag"]) >= 5 else ""
@@ -1489,6 +1491,10 @@ def fit(x, y, method, range, verbose=False):
         fit = fit_iminuit_3rd
     if range == 'half': # positive half
         mask = (x > 0) & (x < float(config['y_cut']))
+        x = x[mask]
+        y = y[mask]
+    if range == 'half_neg': # negative half
+        mask = (x < 0) & (x > -float(config['y_cut']))
         x = x[mask]
         y = y[mask]
     if range == config['y_cut']:

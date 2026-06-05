@@ -3,6 +3,28 @@ import numpy as np
 import yaml
 import matplotlib.pyplot as plt
 
+# Special tags 5 (positive-y half) and 8 (negative-y half) are the two one-sided
+# v1(y) slope fits. They are combined into a single paired "y-range" systematic
+# rather than each being compared to the default cut.
+YRANGE_POS_TAG = '5'
+YRANGE_NEG_TAG = '8'
+YRANGE_DIVISOR = 12.0  # full-width uniform: std = width / sqrt(12)
+
+
+def yrange_paired_unc(pos_val, pos_err, neg_val, neg_err):
+    """Variance contribution of the paired positive/negative-y half-fit systematic,
+    BEFORE the full-width-uniform /12 divisor (the caller applies it).
+
+    Delta = slope_pos - slope_neg; the two halves use disjoint y-ranges, so the
+    statistical scatter on Delta is sigma = sqrt(pos_err^2 + neg_err^2). The term is
+    significance-gated: it contributes max(Delta^2 - sigma^2, 0) only when |Delta| > sigma.
+    """
+    delta = pos_val - neg_val
+    sigma2 = pos_err**2 + neg_err**2
+    if delta**2 > sigma2:
+        return delta**2 - sigma2
+    return 0.0
+
 
 def main(default, regular_sys, special_sys, output, energy, sys_divisor):
     with open (default, 'r') as f:
@@ -31,8 +53,10 @@ def main(default, regular_sys, special_sys, output, energy, sys_divisor):
             print(f'Centrality: {default_cut["x"][cent]}')
             print('\tSys_tag    Delta      Delta_err  Significance')
             sum_of_unc = 0
-            
+
             for sys_tag in sys_cut.keys():
+                if sys_tag in (YRANGE_POS_TAG, YRANGE_NEG_TAG):
+                    continue  # combined below as the paired y-range systematic
                 delta = default_cut[val][cent] - sys_cut[sys_tag][val][cent]
                 delta_err = np.sqrt(np.abs(sys_cut[sys_tag][err][cent]**2 - default_cut[err][cent]**2))
                 # significance = abs(delta) / delta_err if delta_err != 0 else 0
@@ -40,10 +64,19 @@ def main(default, regular_sys, special_sys, output, energy, sys_divisor):
                 print(f'\t{int(sys_tag):<10} {delta:<10.4f} {delta_err:<10.4f} {significance}')
                 if significance:
                     sum_of_unc += delta**2 - delta_err**2
-            print(f'\tTotal systematic uncertainty: {np.sqrt(sum_of_unc / sys_divisor):.4f}')
+            # paired positive/negative-y half-fit systematic (full-width uniform -> /12)
+            yrange_unc = 0
+            if YRANGE_POS_TAG in sys_cut and YRANGE_NEG_TAG in sys_cut:
+                yrange_unc = yrange_paired_unc(
+                    sys_cut[YRANGE_POS_TAG][val][cent], sys_cut[YRANGE_POS_TAG][err][cent],
+                    sys_cut[YRANGE_NEG_TAG][val][cent], sys_cut[YRANGE_NEG_TAG][err][cent])
+                d_pn = sys_cut[YRANGE_POS_TAG][val][cent] - sys_cut[YRANGE_NEG_TAG][val][cent]
+                print(f'\t{"5-8 yrange":<10} {d_pn:<10.4f} {"":<10} {yrange_unc > 0}')
+            total_var = sum_of_unc / sys_divisor + yrange_unc / YRANGE_DIVISOR
+            print(f'\tTotal systematic uncertainty: {np.sqrt(total_var):.4f}')
             yerr_stat[val][cent] = default_cut['yerr'][cent]
-            yerr_sys[val][cent] = np.sqrt(sum_of_unc / sys_divisor)
-            new_yerr[val][cent] = np.sqrt(default_cut[err][cent]**2 + sum_of_unc / sys_divisor)
+            yerr_sys[val][cent] = np.sqrt(total_var)
+            new_yerr[val][cent] = np.sqrt(default_cut[err][cent]**2 + total_var)
         
         # basically use default_cut, but replace yerr with new_yerr
         default_cut[err] = new_yerr[val]
@@ -67,6 +100,8 @@ def main(default, regular_sys, special_sys, output, energy, sys_divisor):
             sum_of_unc = 0
 
             for sys_tag in sys_cut.keys():
+                if sys_tag in (YRANGE_POS_TAG, YRANGE_NEG_TAG):
+                    continue  # combined below as the paired y-range systematic
                 delta = default_cut[pair_name]['value'] - sys_cut[sys_tag][pair_name]['value']
                 delta_err = np.sqrt(np.abs(sys_cut[sys_tag][pair_name]['error']**2 - default_cut[pair_name]['error']**2))
                 # significance = abs(delta) / delta_err if delta_err != 0 else 0
@@ -74,10 +109,19 @@ def main(default, regular_sys, special_sys, output, energy, sys_divisor):
                 print(f'\t{int(sys_tag):<10} {delta:<10.4f} {delta_err:<10.4f} {significance}')
                 if significance:
                     sum_of_unc += delta**2 - delta_err**2
-            print(f'\tTotal systematic uncertainty: {np.sqrt(sum_of_unc / sys_divisor):.4f}')
+            # paired positive/negative-y half-fit systematic (full-width uniform -> /12)
+            yrange_unc = 0
+            if YRANGE_POS_TAG in sys_cut and YRANGE_NEG_TAG in sys_cut:
+                yrange_unc = yrange_paired_unc(
+                    sys_cut[YRANGE_POS_TAG][pair_name]['value'], sys_cut[YRANGE_POS_TAG][pair_name]['error'],
+                    sys_cut[YRANGE_NEG_TAG][pair_name]['value'], sys_cut[YRANGE_NEG_TAG][pair_name]['error'])
+                d_pn = sys_cut[YRANGE_POS_TAG][pair_name]['value'] - sys_cut[YRANGE_NEG_TAG][pair_name]['value']
+                print(f'\t{"5-8 yrange":<10} {d_pn:<10.4f} {"":<10} {yrange_unc > 0}')
+            total_var = sum_of_unc / sys_divisor + yrange_unc / YRANGE_DIVISOR
+            print(f'\tTotal systematic uncertainty: {np.sqrt(total_var):.4f}')
             yerr_stat = default_cut[pair_name]['error']
-            yerr_sys = np.sqrt(sum_of_unc / sys_divisor)
-            new_yerr = np.sqrt(default_cut[pair_name]['error']**2 + sum_of_unc / sys_divisor)
+            yerr_sys = np.sqrt(total_var)
+            new_yerr = np.sqrt(default_cut[pair_name]['error']**2 + total_var)
 
             default_cut[pair_name]['error'] = new_yerr
             default_cut[pair_name]['error_stat'] = yerr_stat

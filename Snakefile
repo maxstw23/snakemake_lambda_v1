@@ -265,7 +265,7 @@ rule plot_v1_special_sys:
         plot_v2_hi = lambda wildcards: config['plotting'][wildcards.energy]['v2_hi'],
         order = lambda wildcards: config['fit_order'][wildcards.energy]
     wildcard_constraints:
-        sys_tag='[56]'
+        sys_tag='[568]'
     output: 'plots/special_sys_tag_{sys_tag}/v1_cen_{energy}.pdf',
             # 'plots/special_sys_tag_{sys_tag}/a1_cen_{energy}.pdf',
             # 'plots/special_sys_tag_{sys_tag}/dv1a1dy_{energy}.pdf',
@@ -503,8 +503,9 @@ rule combine_sys:
            regular_sys=lambda wildcards: expand('plots/sys_tag_{sys_tag}/paper_yaml/dv1dy_coal_{energy}.yaml', sys_tag=[1,2,3], energy=wildcards.energy),
            # tag 6 (cubic fit-order) removed: dominated by cubic overfitting on thin
            # peripheral/low-energy data (Δ up to ~0.09, 2-9x the slope) rather than a
-           # genuine fit-order systematic. tag 5 = half-y range, tag 7 = y-integrated eff.
-           special_sys=lambda wildcards: expand('plots/special_sys_tag_{sys_tag}/paper_yaml/dv1dy_coal_{energy}.yaml', sys_tag=[5,7], energy=wildcards.energy)
+           # genuine fit-order systematic. tags 5+8 = positive/negative half-y range
+           # (combined as a single paired y-range systematic), tag 7 = y-integrated eff.
+           special_sys=lambda wildcards: expand('plots/special_sys_tag_{sys_tag}/paper_yaml/dv1dy_coal_{energy}.yaml', sys_tag=[5,7,8], energy=wildcards.energy)
     output: 'plots/final/paper_yaml/dv1dy_coal_{energy}.yaml'
     params:
         sys_divisor = config['sys_divisor']
