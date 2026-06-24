@@ -530,7 +530,8 @@ rule generate_paper_plots:
            model_sim_urqmd=expand('result/model/urqmd/data_{energy}_lambda.csv', energy=['7p7GeV', '17p3GeV', '19p6GeV']),
            model_sim_ampt=expand('result/model/ampt/data_{energy}_lambda.csv', energy=['14p6GeV'])
     output: report='plots/paper/report.pdf',
-            data_points=expand('plots/paper/data_points/dv1dy_{energy}.csv', energy=energies)
+            data_points=expand('plots/paper/data_points/dv1dy_{energy}.csv', energy=energies),
+            data_points_netlambda=expand('plots/paper/data_points/v1_y_netlambda_{energy}.csv', energy=energies)
     params:
         eff_energies=sorted(set(list(eff_files.keys()) + list(eff_files_lambdabar.keys())))
     # log: stdout='logs/sys_tag_0/generate_paper_plots.log', stderr='logs/sys_tag_0/generate_paper_plots.err'

@@ -131,7 +131,7 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
     ax_res.set_xlabel('Centrality %', fontsize=18, loc='right')
     ax_res.set_ylabel(r'Resolution', fontsize=18, loc='top')
     data_dict = {'x': centralities[cen_mask], 'y': unumpy.nominal_values(resolution[cen_mask]), 'yerr': unumpy.std_devs(resolution[cen_mask])}
-    with open(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/paper_yaml/resolution_{kwargs["energy"]}.yaml', 'w') as file:
+    with open(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/paper_yaml/resolution_{kwargs["energy"]}.yaml', 'w') as file:
         yaml.dump(data_dict, file, default_flow_style=False)
     # try:
     #     pickle.dump(fig_res, open(f'plots/paper_yaml/resolution_{kwargs["energy"]}.pkl', 'wb'))
@@ -178,10 +178,10 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
     ### v1
     y_bin_centers = 0.5 * (ybin_edges[:-1] + ybin_edges[1:])
     def initialize_y_merged_dict():
-        return {'1234': {'x': y_bin_centers, 'count': 0, 'measurement':Measurement(unumpy.uarray(np.zeros(20), np.zeros(20)))},
-                '567': {'x': y_bin_centers, 'count': 0, 'measurement':Measurement(unumpy.uarray(np.zeros(20), np.zeros(20)))},
-                '89': {'x': y_bin_centers, 'count': 0, 'measurement':Measurement(unumpy.uarray(np.zeros(20), np.zeros(20)))},
-                '123': {'x': y_bin_centers, 'count': 0, 'measurement':Measurement(unumpy.uarray(np.zeros(20), np.zeros(20)))},
+        return {'1234': {'x': y_bin_centers, 'count': 0, 'measurement':Measurement(unumpy.uarray(np.zeros(num_ybin), np.zeros(num_ybin)))},
+                '567': {'x': y_bin_centers, 'count': 0, 'measurement':Measurement(unumpy.uarray(np.zeros(num_ybin), np.zeros(num_ybin)))},
+                '89': {'x': y_bin_centers, 'count': 0, 'measurement':Measurement(unumpy.uarray(np.zeros(num_ybin), np.zeros(num_ybin)))},
+                '123': {'x': y_bin_centers, 'count': 0, 'measurement':Measurement(unumpy.uarray(np.zeros(num_ybin), np.zeros(num_ybin)))},
                 }
     merged_cen_labels = {'1234': '40-80%', '567': '10-40%', '89': '0-10%', '123': '50-80%'}
     merged_cen_titles = {'1234': '4080', '567': '1040', '89': '010', '123': '5080'}
@@ -354,6 +354,11 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
     dv1dy_deltalambda_err = np.zeros(9)
     d3v1dy3_deltalambda = np.zeros(9)
     d3v1dy3_deltalambda_err = np.zeros(9)
+    # per-centrality yield-weighted combinations (fig_2-style; mirror dv1dy_deltalambda)
+    dv1dy_netlambda = np.zeros(9)
+    dv1dy_netlambda_err = np.zeros(9)
+    dv1dy_excesslambda = np.zeros(9)
+    dv1dy_excesslambda_err = np.zeros(9)
     fig_delta = plt.figure(figsize=(24, 18))
     gs_delta = fig_delta.add_gridspec(3, 3, hspace=0, wspace=0)
     ax_delta = gs_delta.subplots(sharex='col', sharey='row')
@@ -409,7 +414,30 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         popt_first, perr_first, rchi2_first = fit(ybin_good, v1_final, method=1, range=range)
         dv1dy_deltalambda[cen - 1] = popt[0]
         dv1dy_deltalambda_err[cen - 1] = perr[0]
-        if method == 3: 
+
+        # per-centrality net-Lambda and excess-Lambda dv1/dy (yield-weighted, with the
+        # signal yields S as fixed weights so only the v1 stat errors propagate):
+        #   net    = (S_L*v1_L - S_Lb*v1_Lb) / (S_L - S_Lb)
+        #   excess = S_L*(v1_L - v1_Lb) / (S_L - S_Lb)
+        # Bins with S_L - S_Lb <= 0 or NaN v1 are masked out of the slope fit.
+        S_l_cen = np.nan_to_num(data['counts'].astype(float))
+        S_lb_cen = np.nan_to_num(data_bar['counts'].astype(float))
+        m_l_cen = unumpy.uarray(data['values'].astype(float), data['errors'].astype(float)) / resolution[cen - 1]
+        m_lb_cen = unumpy.uarray(data_bar['values'].astype(float), data_bar['errors'].astype(float)) / resolution[cen - 1]
+        denom_cen = S_l_cen - S_lb_cen
+        good_cen = np.invert(bool_nan) & np.isfinite(denom_cen) & (denom_cen > 0)
+        if np.count_nonzero(good_cen) >= 2:
+            safe_denom = np.where(good_cen, denom_cen, 1.0)
+            net_cen = (S_l_cen * m_l_cen - S_lb_cen * m_lb_cen) / safe_denom
+            excess_cen = S_l_cen * (m_l_cen - m_lb_cen) / safe_denom
+            popt_net, perr_net, _ = fit(ybin_unumpy[good_cen], net_cen[good_cen], method=method, range=range)
+            popt_exc, perr_exc, _ = fit(ybin_unumpy[good_cen], excess_cen[good_cen], method=method, range=range)
+            dv1dy_netlambda[cen - 1] = popt_net[0]
+            dv1dy_netlambda_err[cen - 1] = perr_net[0]
+            dv1dy_excesslambda[cen - 1] = popt_exc[0]
+            dv1dy_excesslambda_err[cen - 1] = perr_exc[0]
+
+        if method == 3:
             d3v1dy3_deltalambda[cen - 1] = popt[1]
             d3v1dy3_deltalambda_err[cen - 1] = perr[1]
             # sys_tag 6 cubic systematic: keep genuine cubic slope; significance handled in combine_sys
@@ -902,17 +930,21 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
     merged_centralities = {'010': [8,9], '1040': [5,6,7], '4080': [1,2,3,4], '5080': [1,2,3]}
     merged_latex = {'010': '0-10%', '1040': '10-40%', '4080': '40-80%', '5080': '50-80%'}
     v1_merged_lambda = {}
+    # net-Lambda: per-y-bin signal yields summed over the centralities in each merged
+    # group (same grouping as the merged v1), used as weights for v1_net (cf. delta block).
+    count_merged_lambda = {}
     for cen, data in lambda_v1.items():
         if cen_mask[cen - 1] == False:
             continue
         num_ybin = len(data['values'])
         ybin_edges = np.linspace(-1., 1., num_ybin + 1)
-        ybin = 0.5 * (ybin_edges[:-1] + ybin_edges[1:])      
+        ybin = 0.5 * (ybin_edges[:-1] + ybin_edges[1:])
         ybin_err = np.diff(ybin_edges) / 2
         ybin_unumpy = unumpy.uarray(ybin, ybin_err)
-        
+
         v1 = np.nan_to_num(data['values'])
         v1_err = np.nan_to_num(data['errors'])
+        v1_count = np.nan_to_num(data['counts'].astype(float))
         v1_unumpy = unumpy.uarray(v1, v1_err)
         v1_final = v1_unumpy / resolution[cen - 1]
         ybin_good = ybin_unumpy
@@ -922,20 +954,24 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
                     print('v1_final[0]:', v1_final[0])
                     print('type(v1_final[0]):', type(v1_final[0]))
                     v1_merged_lambda[key] = {'x': ybin_good, 'y': Measurement(v1_final)}
+                    count_merged_lambda[key] = v1_count.copy()
                 else:
                     v1_merged_lambda[key]['y'] = v1_merged_lambda[key]['y'] + Measurement(v1_final)
+                    count_merged_lambda[key] = count_merged_lambda[key] + v1_count
     v1_merged_lambdabar = {}
+    count_merged_lambdabar = {}
     for cen, data in lambdabar_v1.items():
         if cen_mask[cen - 1] == False:
             continue
         num_ybin = len(data['values'])
         ybin_edges = np.linspace(-1., 1., num_ybin + 1)
-        ybin = 0.5 * (ybin_edges[:-1] + ybin_edges[1:])      
+        ybin = 0.5 * (ybin_edges[:-1] + ybin_edges[1:])
         ybin_err = np.diff(ybin_edges) / 2
         ybin_unumpy = unumpy.uarray(ybin, ybin_err)
-        
+
         v1 = np.nan_to_num(data['values'])
         v1_err = np.nan_to_num(data['errors'])
+        v1_count = np.nan_to_num(data['counts'].astype(float))
         v1_unumpy = unumpy.uarray(v1, v1_err)
         v1_final = v1_unumpy / resolution[cen - 1]
         ybin_good = ybin_unumpy
@@ -943,12 +979,18 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
             if cen in value:
                 if key not in v1_merged_lambdabar.keys():
                     v1_merged_lambdabar[key] = {'x': ybin_good, 'y': Measurement(v1_final)}
+                    count_merged_lambdabar[key] = v1_count.copy()
                 else:
                     v1_merged_lambdabar[key]['y'] = v1_merged_lambdabar[key]['y'] + Measurement(v1_final)
+                    count_merged_lambdabar[key] = count_merged_lambdabar[key] + v1_count
 
     dv1dy_lambda_merged = {}
     dv1dy_lambdabar_merged = {}
     dv1dy_deltalambda_merged = {}
+    dv1dy_netlambda_merged = {}
+    v1_y_netlambda_merged_out = {}
+    dv1dy_excesslambda_merged = {}
+    v1_y_excesslambda_merged_out = {}
     for i, (key, value) in enumerate(v1_merged_lambda.items()):
         m = value['y'].get_measurement()
         _xnom = unumpy.nominal_values(value['x'])
@@ -1062,6 +1104,55 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
         ax_4[i].set_xlabel(r'$y$')
         ax_4[i].set_ylabel(r'$v_1$')
         ax_4[i].legend()
+
+    # net-Lambda: yield-weighted net-particle directed flow per merged centrality,
+    #   v1_net(y) = (S_L*v1_L - S_Lb*v1_Lb) / (S_L - S_Lb),
+    # with the signal yields S treated as fixed weights so only the v1 statistical
+    # errors propagate (w_L - w_Lb = 1 => sigma_net^2 = w_L^2 sigma_L^2 + w_Lb^2 sigma_Lb^2).
+    # Bins with S_L - S_Lb <= 0 (or no yield) are masked out (given a huge error) so they
+    # carry no weight in the slope fit and drop out of the stored v1_net(y) arrays.
+    for key, value in v1_merged_lambda.items():
+        m_l = value['y'].get_measurement()
+        m_lb = v1_merged_lambdabar[key]['y'].get_measurement()
+        S_l = count_merged_lambda[key]
+        S_lb = count_merged_lambdabar[key]
+        denom = S_l - S_lb
+        good = np.isfinite(denom) & (denom > 0)
+        net = (S_l * m_l - S_lb * m_lb) / np.where(good, denom, 1.0)
+        net = np.where(good, net, unumpy.uarray(np.zeros_like(S_l), np.full_like(S_l, 1e9)))
+        popt, perr, rchi2 = fit(value['x'], net, method=method, range=range)
+        if key not in dv1dy_netlambda_merged.keys():
+            dv1dy_netlambda_merged[key] = {}
+        dv1dy_netlambda_merged[key]['value'] = popt[0]
+        dv1dy_netlambda_merged[key]['error'] = perr[0]
+        v1_y_netlambda_merged_out[key] = {
+            'value': np.where(good, unumpy.nominal_values(net), np.nan),
+            'error': np.where(good, unumpy.std_devs(net), np.nan),
+            'y': unumpy.nominal_values(value['x']),
+        }
+
+    # excess-Lambda: (v1_L - v1_Lb)/(1 - S_Lb/S_L) = S_L*(v1_L - v1_Lb)/(S_L - S_Lb),
+    # yields fixed as weights (only v1 stat errors propagate); same denom>0 masking
+    # as net-Lambda. Bins with S_L - S_Lb <= 0 (or no yield) are masked (huge error).
+    for key, value in v1_merged_lambda.items():
+        m_l = value['y'].get_measurement()
+        m_lb = v1_merged_lambdabar[key]['y'].get_measurement()
+        S_l = count_merged_lambda[key]
+        S_lb = count_merged_lambdabar[key]
+        denom = S_l - S_lb
+        good = np.isfinite(denom) & (denom > 0)
+        excess = S_l * (m_l - m_lb) / np.where(good, denom, 1.0)
+        excess = np.where(good, excess, unumpy.uarray(np.zeros_like(S_l), np.full_like(S_l, 1e9)))
+        popt, perr, rchi2 = fit(value['x'], excess, method=method, range=range)
+        if key not in dv1dy_excesslambda_merged.keys():
+            dv1dy_excesslambda_merged[key] = {}
+        dv1dy_excesslambda_merged[key]['value'] = popt[0]
+        dv1dy_excesslambda_merged[key]['error'] = perr[0]
+        v1_y_excesslambda_merged_out[key] = {
+            'value': np.where(good, unumpy.nominal_values(excess), np.nan),
+            'error': np.where(good, unumpy.std_devs(excess), np.nan),
+            'y': unumpy.nominal_values(value['x']),
+        }
 
     # delta v1 and a1 slope
     # delta_dv1dy = dv1dy_lambda - dv1dy_lambdabar
@@ -1178,6 +1269,9 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
                  #'a1': da1dy_lambda[cen_mask], 'a1_err': da1dy_lambda_err[cen_mask],
                 'lambda': dv1dy_lambda[cen_mask], 'lambda_err': dv1dy_lambda_err[cen_mask],
                 'lambdabar': dv1dy_lambdabar[cen_mask], 'lambdabar_err': dv1dy_lambdabar_err[cen_mask],
+                # per-centrality yield-weighted combinations (fig_2-style)
+                'netlambda': dv1dy_netlambda[cen_mask], 'netlambda_err': dv1dy_netlambda_err[cen_mask],
+                'excesslambda': dv1dy_excesslambda[cen_mask], 'excesslambda_err': dv1dy_excesslambda_err[cen_mask],
 
                 # merged centrality
                 'y_merged': unumpy.nominal_values(v1_merged_lambda['4080']['x']).round(decimals=2),
@@ -1310,6 +1404,18 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
                     'y': unumpy.nominal_values(v1_y_lambda_merged['123']['x'])
                 },
 
+                # v1 y net-Lambda (yield-weighted net-particle directed flow)
+                'v1_y_netlambda_4080': v1_y_netlambda_merged_out['4080'],
+                'v1_y_netlambda_1040': v1_y_netlambda_merged_out['1040'],
+                'v1_y_netlambda_010': v1_y_netlambda_merged_out['010'],
+                'v1_y_netlambda_5080': v1_y_netlambda_merged_out['5080'],
+
+                # v1 y excess-Lambda ((v1_L - v1_Lb)/(1 - S_Lb/S_L))
+                'v1_y_excesslambda_4080': v1_y_excesslambda_merged_out['4080'],
+                'v1_y_excesslambda_1040': v1_y_excesslambda_merged_out['1040'],
+                'v1_y_excesslambda_010': v1_y_excesslambda_merged_out['010'],
+                'v1_y_excesslambda_5080': v1_y_excesslambda_merged_out['5080'],
+
                 # proton
                 'p': unumpy.nominal_values(proton_v1_slopes[cen_mask]), 'p_err': unumpy.std_devs(proton_v1_slopes[cen_mask]),
                 'pbar': unumpy.nominal_values(antiproton_v1_slopes[cen_mask]), 'pbar_err': unumpy.std_devs(antiproton_v1_slopes[cen_mask]),
@@ -1336,6 +1442,10 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
                 'dv1dy_lambdabar_010': dv1dy_lambdabar_merged['010'], 'dv1dy_lambdabar_1040': dv1dy_lambdabar_merged['1040'], 'dv1dy_lambdabar_4080': dv1dy_lambdabar_merged['4080'],
                 'dv1dy_deltalambda_010': dv1dy_deltalambda_merged['010'], 'dv1dy_deltalambda_1040': dv1dy_deltalambda_merged['1040'], 'dv1dy_deltalambda_4080': dv1dy_deltalambda_merged['4080'],
                 'dv1dy_lambda_5080': dv1dy_lambda_merged['5080'], 'dv1dy_lambdabar_5080': dv1dy_lambdabar_merged['5080'], 'dv1dy_deltalambda_5080': dv1dy_deltalambda_merged['5080'],
+                'dv1dy_netlambda_010': dv1dy_netlambda_merged['010'], 'dv1dy_netlambda_1040': dv1dy_netlambda_merged['1040'],
+                'dv1dy_netlambda_4080': dv1dy_netlambda_merged['4080'], 'dv1dy_netlambda_5080': dv1dy_netlambda_merged['5080'],
+                'dv1dy_excesslambda_010': dv1dy_excesslambda_merged['010'], 'dv1dy_excesslambda_1040': dv1dy_excesslambda_merged['1040'],
+                'dv1dy_excesslambda_4080': dv1dy_excesslambda_merged['4080'], 'dv1dy_excesslambda_5080': dv1dy_excesslambda_merged['5080'],
                 # 'dv1dy_proton_1040': ufloat(df_protons['delta_v1'][10], df_protons['delta_v1_err'][10]),
                 # 'dv1dy_proton_4080': ufloat(df_protons['delta_v1'][9], df_protons['delta_v1_err'][9]),
                 # 'dv1dy_kaon_1040': ufloat(df_kaons['delta_v1'][10], df_kaons['delta_v1_err'][10]),
@@ -1345,7 +1455,7 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
                 'delta_u': unumpy.nominal_values(delta_u[cen_mask]), 'delta_u_err': unumpy.std_devs(delta_u[cen_mask]),
                 'delta_d': unumpy.nominal_values(delta_d[cen_mask]), 'delta_d_err': unumpy.std_devs(delta_d[cen_mask]),
                 'delta_s': unumpy.nominal_values(delta_s[cen_mask]), 'delta_s_err': unumpy.std_devs(delta_s[cen_mask])}
-    with open(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/paper_yaml/dv1dy_coal_{kwargs["energy"]}.yaml', 'w') as file:
+    with open(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/paper_yaml/dv1dy_coal_{kwargs["energy"]}.yaml', 'w') as file:
         yaml.dump(data_dict, file, default_flow_style=False)
 
     # comparing with Prithwish suggestion
@@ -1374,42 +1484,42 @@ def main(paths, paths_piKp, paths_pt, fres, output, method, **kwargs):
 
     plt.tight_layout()
     # plt.show()
-    fig_res.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/resolution_{kwargs["energy"]}.pdf')
-    fig_piKp.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_piKp_{kwargs["energy"]}.pdf')
-    fig_1.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_cen_{kwargs["energy"]}.pdf')
-    fig_delta.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/delta_v1_cen_{kwargs["energy"]}.pdf')
+    fig_res.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/resolution_{kwargs["energy"]}.pdf')
+    fig_piKp.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_piKp_{kwargs["energy"]}.pdf')
+    fig_1.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_cen_{kwargs["energy"]}.pdf')
+    fig_delta.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/delta_v1_cen_{kwargs["energy"]}.pdf')
     if not no_a1:
-        fig_2.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/a1_cen_{kwargs["energy"]}.pdf')
-        fig_3_a1.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/da1dy_cen_{kwargs["energy"]}.pdf')
-        fig_delta_a1.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/delta_a1_cen_{kwargs["energy"]}.pdf')
+        fig_2.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/a1_cen_{kwargs["energy"]}.pdf')
+        fig_3_a1.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/da1dy_cen_{kwargs["energy"]}.pdf')
+        fig_delta_a1.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/delta_a1_cen_{kwargs["energy"]}.pdf')
     else:
         # if a1 is not available, save empty plots with just the title for the sake of uniformity in the paper
         fig_blank, ax_blank = plt.subplots(figsize=(8, 6))
         ax_blank.text(0.5, 0.5, 'a1 not available', horizontalalignment='center', verticalalignment='center', fontsize=20)
         ax_blank.axis('off')
-        fig_blank.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/a1_cen_{kwargs["energy"]}.pdf')
-        fig_blank.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/da1dy_cen_{kwargs["energy"]}.pdf')
-        fig_blank.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/delta_a1_cen_{kwargs["energy"]}.pdf')
-    fig_4.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_cen_merged_{kwargs["energy"]}.pdf')
-    fig_5_lambda.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_pt_{kwargs["energy"]}_lambda.pdf')
-    fig_5_lambdabar.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_pt_{kwargs["energy"]}_lambdabar.pdf')
-    fig_final.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/dv1a1dy_{kwargs["energy"]}.pdf')
-    fig_final_2.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/dv1dy_coal_{kwargs["energy"]}.pdf')
+        fig_blank.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/a1_cen_{kwargs["energy"]}.pdf')
+        fig_blank.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/da1dy_cen_{kwargs["energy"]}.pdf')
+        fig_blank.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/delta_a1_cen_{kwargs["energy"]}.pdf')
+    fig_4.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_cen_merged_{kwargs["energy"]}.pdf')
+    fig_5_lambda.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_pt_{kwargs["energy"]}_lambda.pdf')
+    fig_5_lambdabar.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_pt_{kwargs["energy"]}_lambdabar.pdf')
+    fig_final.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/dv1a1dy_{kwargs["energy"]}.pdf')
+    fig_final_2.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/dv1dy_coal_{kwargs["energy"]}.pdf')
 
     # also png
-    fig_res.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/resolution_{kwargs["energy"]}.png')
-    fig_piKp.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_piKp_{kwargs["energy"]}.png')
-    fig_1.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_cen_{kwargs["energy"]}.png')
-    fig_delta.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/delta_v1_cen_{kwargs["energy"]}.png')
+    fig_res.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/resolution_{kwargs["energy"]}.png')
+    fig_piKp.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_piKp_{kwargs["energy"]}.png')
+    fig_1.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_cen_{kwargs["energy"]}.png')
+    fig_delta.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/delta_v1_cen_{kwargs["energy"]}.png')
     if not no_a1:
-        fig_2.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/a1_cen_{kwargs["energy"]}.png')
-        fig_3_a1.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/da1dy_cen_{kwargs["energy"]}.png')
-        fig_delta_a1.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/delta_a1_cen_{kwargs["energy"]}.png')
-    fig_4.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_cen_merged_{kwargs["energy"]}.png')
-    fig_5_lambda.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_pt_{kwargs["energy"]}_lambda.png')
-    fig_5_lambdabar.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_pt_{kwargs["energy"]}_lambdabar.png')
-    fig_final.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/dv1a1dy_{kwargs["energy"]}.png')
-    fig_final_2.savefig(f'plots/{prefix}sys_tag_{kwargs["sys_tag"]}/dv1dy_coal_{kwargs["energy"]}.png')
+        fig_2.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/a1_cen_{kwargs["energy"]}.png')
+        fig_3_a1.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/da1dy_cen_{kwargs["energy"]}.png')
+        fig_delta_a1.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/delta_a1_cen_{kwargs["energy"]}.png')
+    fig_4.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_cen_merged_{kwargs["energy"]}.png')
+    fig_5_lambda.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_pt_{kwargs["energy"]}_lambda.png')
+    fig_5_lambdabar.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/v1_pt_{kwargs["energy"]}_lambdabar.png')
+    fig_final.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/dv1a1dy_{kwargs["energy"]}.png')
+    fig_final_2.savefig(f'{kwargs["out_root"]}/{prefix}sys_tag_{kwargs["sys_tag"]}/dv1dy_coal_{kwargs["energy"]}.png')
 
 
 def func_wrapper(params, x):
@@ -1515,6 +1625,10 @@ if __name__ == '__main__':
     parser.add_argument('--method', type=int, help='Method to use for fitting', default=1)
     parser.add_argument('--energy', type=str, help='Energy of the collision, as a string', default='7p7GeV')
     parser.add_argument('--yrange', type=float, nargs=2, help='Y range for the final plot', default=None)
+    parser.add_argument('--out_root', type=str, default='plots',
+                        help='Root output directory for plots/yaml (default "plots"). '
+                             'Set to e.g. "plots/10ybin" to redirect into an alternative tree '
+                             'without touching the default outputs.')
     args = parser.parse_args()
     # select only non-required arguments and group them in a dictionnary
     kwd = {k: v for k, v in vars(args).items() if k not in ['paths', 'paths_piKp', 'paths_pt', 'fres', 'output']}

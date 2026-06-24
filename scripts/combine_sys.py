@@ -1,4 +1,5 @@
 import argparse
+import re
 import numpy as np
 import yaml
 import matplotlib.pyplot as plt
@@ -33,11 +34,11 @@ def main(default, regular_sys, special_sys, output, energy, sys_divisor):
     if not regular_sys[0].startswith('result/blank/'):
         for sys in regular_sys:
             with open (sys, 'r') as f:
-                sys_tag = sys.split('/')[1].split('_')[-1]
+                sys_tag = re.search(r'(?:special_)?sys_tag_(\d+)', sys).group(1)
                 sys_cut[sys_tag] = yaml.load(f, Loader=yaml.CLoader)
     for sys in special_sys:
         with open (sys, 'r') as f:
-            sys_tag = sys.split('/')[1].split('_')[-1]
+            sys_tag = re.search(r'(?:special_)?sys_tag_(\d+)', sys).group(1)
             sys_cut[sys_tag] = yaml.load(f, Loader=yaml.CLoader)
     
     # iterate thru the centralities
@@ -83,13 +84,43 @@ def main(default, regular_sys, special_sys, output, energy, sys_divisor):
         default_cut[err+'_stat'] = yerr_stat[val]
         default_cut[err+'_sys'] = yerr_sys[val]
 
+    # per-centrality net-Lambda / excess-Lambda systematic (fig_2-style observables).
+    # Kept separate from the data_pairs loop so the statistical error uses each
+    # quantity's own fit error. Same significance-gated rule + paired y-range term.
+    cen_pairs = {'netlambda': 'netlambda_err', 'excesslambda': 'excesslambda_err'}
+    for val, err in cen_pairs.items():
+        new_e = np.zeros_like(default_cut[err])
+        stat_e = np.zeros_like(default_cut[err])
+        sys_e = np.zeros_like(default_cut[err])
+        for cent in range(len(default_cut['x'])):
+            sum_of_unc = 0
+            for sys_tag in sys_cut.keys():
+                if sys_tag in (YRANGE_POS_TAG, YRANGE_NEG_TAG):
+                    continue  # combined below as the paired y-range systematic
+                delta = default_cut[val][cent] - sys_cut[sys_tag][val][cent]
+                delta_err = np.sqrt(np.abs(sys_cut[sys_tag][err][cent]**2 - default_cut[err][cent]**2))
+                if delta_err < abs(delta):
+                    sum_of_unc += delta**2 - delta_err**2
+            yrange_unc = 0
+            if YRANGE_POS_TAG in sys_cut and YRANGE_NEG_TAG in sys_cut:
+                yrange_unc = yrange_paired_unc(
+                    sys_cut[YRANGE_POS_TAG][val][cent], sys_cut[YRANGE_POS_TAG][err][cent],
+                    sys_cut[YRANGE_NEG_TAG][val][cent], sys_cut[YRANGE_NEG_TAG][err][cent])
+            total_var = sum_of_unc / sys_divisor + yrange_unc / YRANGE_DIVISOR
+            stat_e[cent] = default_cut[err][cent]
+            sys_e[cent] = np.sqrt(total_var)
+            new_e[cent] = np.sqrt(default_cut[err][cent]**2 + total_var)
+        default_cut[err] = new_e
+        default_cut[err+'_stat'] = stat_e
+        default_cut[err+'_sys'] = sys_e
+
     
     print('----------------------------------')
     merged_centralities = ['010', '1040', '4080', '5080']
     new_yerr = {}
     yerr_stat = {}
     yerr_sys = {}
-    for part in ['lambda', 'lambdabar', 'deltalambda']:
+    for part in ['lambda', 'lambdabar', 'deltalambda', 'netlambda', 'excesslambda']:
         for cent in merged_centralities:
             pair_name = f'dv1dy_{part}_{cent}'
             new_yerr = 0
@@ -156,6 +187,11 @@ def main(default, regular_sys, special_sys, output, energy, sys_divisor):
             pair_name = 'v1_y_' + part + '_' + cent
             new_yerr = 0
             for sys_tag in sys_cut.keys():
+                # The positive/negative-y half-range fits (tags 5/8) are a
+                # v1(y)-vs-y slope-fit systematic; they must not contribute to the
+                # per-point v1(y) systematic, so skip them here (cf. dv1dy block).
+                if sys_tag in (YRANGE_POS_TAG, YRANGE_NEG_TAG):
+                    continue
                 delta = default_cut[pair_name]['value'] - sys_cut[sys_tag][pair_name]['value']
                 delta_err = np.sqrt(np.abs(sys_cut[sys_tag][pair_name]['error']**2 - default_cut[pair_name]['error']**2))
                 significance = (delta_err < abs(delta))
@@ -169,7 +205,49 @@ def main(default, regular_sys, special_sys, output, energy, sys_divisor):
             default_cut[pair_name]['error_stat'] = yerr_stat
             default_cut[pair_name]['error_sys'] = yerr_sys
 
-    with open(output, 'w') as f:        
+    # net-Lambda v1(y) per-point systematic (only v1_y exists for netlambda; no v1_pt).
+    # Same significance-gated rule as v1_y_delta, excluding the v1(y)-vs-y fit tags 5/8.
+    print('----------------------------------')
+    print('===============v1_y net-Lambda====')
+    print('----------------------------------')
+    for cent in merged_centralities:
+        pair_name = 'v1_y_netlambda_' + cent
+        new_yerr = 0
+        for sys_tag in sys_cut.keys():
+            if sys_tag in (YRANGE_POS_TAG, YRANGE_NEG_TAG):
+                continue
+            delta = default_cut[pair_name]['value'] - sys_cut[sys_tag][pair_name]['value']
+            delta_err = np.sqrt(np.abs(sys_cut[sys_tag][pair_name]['error']**2 - default_cut[pair_name]['error']**2))
+            significance = (delta_err < abs(delta))
+            new_yerr += np.where(significance, delta**2 - delta_err**2, 0)
+        yerr_stat = default_cut[pair_name]['error']
+        yerr_sys = np.sqrt(new_yerr / sys_divisor)
+        default_cut[pair_name]['error'] = np.sqrt(yerr_stat**2 + yerr_sys**2)
+        default_cut[pair_name]['error_stat'] = yerr_stat
+        default_cut[pair_name]['error_sys'] = yerr_sys
+
+    # excess-Lambda v1(y) per-point systematic (only v1_y exists for excesslambda; no v1_pt).
+    # Same significance-gated rule as v1_y_netlambda, excluding the v1(y)-vs-y fit tags 5/8.
+    print('----------------------------------')
+    print('===============v1_y excess-Lambda=')
+    print('----------------------------------')
+    for cent in merged_centralities:
+        pair_name = 'v1_y_excesslambda_' + cent
+        new_yerr = 0
+        for sys_tag in sys_cut.keys():
+            if sys_tag in (YRANGE_POS_TAG, YRANGE_NEG_TAG):
+                continue
+            delta = default_cut[pair_name]['value'] - sys_cut[sys_tag][pair_name]['value']
+            delta_err = np.sqrt(np.abs(sys_cut[sys_tag][pair_name]['error']**2 - default_cut[pair_name]['error']**2))
+            significance = (delta_err < abs(delta))
+            new_yerr += np.where(significance, delta**2 - delta_err**2, 0)
+        yerr_stat = default_cut[pair_name]['error']
+        yerr_sys = np.sqrt(new_yerr / sys_divisor)
+        default_cut[pair_name]['error'] = np.sqrt(yerr_stat**2 + yerr_sys**2)
+        default_cut[pair_name]['error_stat'] = yerr_stat
+        default_cut[pair_name]['error_sys'] = yerr_sys
+
+    with open(output, 'w') as f:
         yaml.dump(default_cut, f)
 
 if __name__ == '__main__':

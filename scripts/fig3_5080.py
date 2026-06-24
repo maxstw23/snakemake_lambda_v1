@@ -28,7 +28,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 from data_point import DataPoint
-from generate_paper_plots import plot_config, tick_params, FIG3_YLIM
+from generate_paper_plots import plot_config, tick_params, FIG3_YLIM, signed_z_preference, _z_labels
 
 PIKP_CORRESPONDENCE = {'pions': ['piplus', 'piminus'],
                        'kaons': ['kplus', 'kminus'],
@@ -116,13 +116,16 @@ def _plot_panel(ax, datapoints, energies, cent, cut_labels):
         tot = dp.total_error()
         y_lo = min(y_lo, float(np.min(dp.value - tot)))
         y_hi = max(y_hi, float(np.max(dp.value + tot)))
-    chi2_p = chi2_per_ndf_total(datapoints[f'delta_lambdas_{cent}'] - datapoints[f'combo2_{cent}'])
-    chi2_pk = chi2_per_ndf_total(datapoints[f'delta_lambdas_{cent}'] - datapoints[f'combo1_{cent}'])
+    # signed log-likelihood-ratio statistic (Z>0 favors p-K, Z<0 favors p) replaces
+    # the two separate chi2/ndf
+    stat = signed_z_preference(datapoints[f'delta_lambdas_{cent}'],
+                               datapoints[f'delta_protons_{cent}'],
+                               datapoints[f'delta_kaons_{cent}'])
     ax.axhline(0, linestyle='dashed', color='black')
     ax.set_xticks(energies, labels=energies)
     ax.tick_params(**tick_params)
     ax.yaxis.set_major_locator(ticker.MultipleLocator(0.02))
-    return chi2_p, chi2_pk, y_lo, y_hi
+    return stat, y_lo, y_hi
 
 
 def make_figure(datapoints, energies, output_dir, high_cent, suffix, cut_labels):
@@ -137,20 +140,21 @@ def make_figure(datapoints, energies, output_dir, high_cent, suffix, cut_labels)
 
         extents = {}
         for ax, cent in zip(axes, cent_ranges):
-            chi2_p, chi2_pk, y_lo, y_hi = _plot_panel(ax, datapoints, energies, cent, cut_labels)
+            stat, y_lo, y_hi = _plot_panel(ax, datapoints, energies, cent, cut_labels)
             extents[cent] = (y_lo, y_hi)
+            z_lbl, gof_lbl = _z_labels(stat)
             if is_horizontal:
                 ypos = 0.21 if cent == '1040' else 0.85
                 ax.annotate(cent_title[cent], xy=(0.45, ypos), xycoords='axes fraction', fontsize=24)
-                ax.annotate(fr'$\chi^2$/ndf (p) = {chi2_p:.2f}', xy=(0.45, ypos - 0.07), xycoords='axes fraction', fontsize=18)
-                ax.annotate(fr'$\chi^2$/ndf (p - K) = {chi2_pk:.2f}', xy=(0.45, ypos - 0.14), xycoords='axes fraction', fontsize=18)
+                ax.annotate(z_lbl, xy=(0.45, ypos - 0.07), xycoords='axes fraction', fontsize=18)
+                ax.annotate(gof_lbl, xy=(0.45, ypos - 0.14), xycoords='axes fraction', fontsize=18)
             else:
                 # vertical 10-40% panel annotations sit upper-left at (0.2, 0.85)
                 xpos = 0.2 if cent == '1040' else 0.45
                 ypos = 0.85
                 ax.annotate(cent_title[cent], xy=(xpos, ypos), xycoords='axes fraction', fontsize=20)
-                ax.annotate(fr'$\chi^2$/ndf (p) = {chi2_p:.2f}', xy=(xpos, ypos - 0.10), xycoords='axes fraction', fontsize=14)
-                ax.annotate(fr'$\chi^2$/ndf (p - K) = {chi2_pk:.2f}', xy=(xpos, ypos - 0.20), xycoords='axes fraction', fontsize=14)
+                ax.annotate(z_lbl, xy=(xpos, ypos - 0.10), xycoords='axes fraction', fontsize=14)
+                ax.annotate(gof_lbl, xy=(xpos, ypos - 0.20), xycoords='axes fraction', fontsize=14)
 
         # the 10-40% panel (axes[1]) carries the legend; title states the units
         axes[1].legend(loc='upper right', fontsize=18 if is_horizontal else 13,

@@ -143,12 +143,65 @@ FIG3_YLIM = (-0.07, 0.10)
 
 def calculate_chi2_per_ndf(data_points, model_points, nparams):
     """
-    Calculate chi2 per ndf for the given data points and model points. Use total errors. 
+    Calculate chi2 per ndf for the given data points and model points. Use total errors.
     """
     chi2_array = (data_points - model_points).value**2 / (data_points.total_error()**2)
     ndf = len(data_points) - nparams
     chi2 = np.sum(chi2_array) / ndf
     return chi2
+
+
+def signed_z_preference(lam, proton, kaon):
+    """Single signed statistic for which reference the Lambda data prefer.
+
+    The two fig_3 references are ``p = (p - pbar)`` and ``p-K = (p - pbar) - (K+ - K-)``.
+    Compute the chi2 of the Lambda data against each, propagating the reference error
+    via ``DataPoint`` subtraction (total stat (+) sys error per point)::
+
+        chi2_p  = sum_i (Lambda - p)_i^2     / sigma(Lambda - p)_i^2
+        chi2_pK = sum_i (Lambda - (p-K))_i^2 / sigma(Lambda - (p-K))_i^2
+
+    Their *difference* (not ratio) is the log-likelihood ratio between the two simple
+    hypotheses; report it as one signed significance::
+
+        dchi2 = chi2_p - chi2_pK ,   Z = sign(dchi2) * sqrt(|dchi2|)
+
+    ``Z > 0`` -> data favor ``p-K`` ; ``Z < 0`` -> data favor ``p`` ; ``|Z|`` is the
+    preference strength (~ sigma). The chi2/ndf of the *preferred* reference is carried
+    alongside as a goodness flag, so a large ``|Z|`` driven by both references fitting
+    poorly is not mistaken for a good description.
+
+    Returns dict: z, dchi2, chi2_p, chi2_pk, ndf, pref ('p' or 'p-K'), chi2ndf_pref.
+    """
+    diff_p = lam - proton
+    diff_pK = lam - (proton - kaon)
+    chi2_p = float(np.sum(diff_p.value**2 / diff_p.total_error()**2))
+    chi2_pk = float(np.sum(diff_pK.value**2 / diff_pK.total_error()**2))
+    ndf = len(lam)
+    dchi2 = chi2_p - chi2_pk
+    z = float(np.sign(dchi2) * np.sqrt(abs(dchi2)))
+    pref = 'p-K' if chi2_pk <= chi2_p else 'p'
+    chi2ndf_pref = (chi2_pk if pref == 'p-K' else chi2_p) / ndf
+    return {
+        'z': z,
+        'dchi2': float(dchi2),
+        'chi2_p': chi2_p,
+        'chi2_pk': chi2_pk,
+        'ndf': ndf,
+        'pref': pref,
+        'chi2ndf_pref': float(chi2ndf_pref),
+    }
+
+
+def _z_labels(stat, fontscale=1.0):
+    """Build the two per-reference chi2/ndf annotation strings for a fig_3 panel: one
+    for the p reference and one for p-K. Reverted from the single Delta-chi2 statistic
+    back to the two separate goodness-of-fit values. Returned (p, p-K) so the existing
+    call sites place chi2/ndf(p) above chi2/ndf(p-K)."""
+    ndf = stat['ndf']
+    lbl_p = fr'$\chi^2/\mathrm{{ndf}} = {stat["chi2_p"] / ndf:.2f}\ (p)$'
+    lbl_pk = fr'$\chi^2/\mathrm{{ndf}} = {stat["chi2_pk"] / ndf:.2f}\ (p\!-\!K)$'
+    return lbl_p, lbl_pk
 
 
 def plot_invmass_v1fit(dict_input, figs, input_path):
@@ -513,6 +566,74 @@ def plot_fig_2(dict_input, figs, input_path, **kwargs):
     return figs
 
 
+def _plot_fig2_combination(dict_input, figs, input_path, *, value_key, name, series_label, **kwargs):
+    """fig_2-style per-centrality dv1/dy vs centrality for a single yield-weighted
+    Lambda combination (net-Lambda or excess-Lambda), one panel per energy. Reads the
+    per-centrality `{value_key}` / `{value_key}_err_stat` / `{value_key}_err_sys` arrays
+    (cf. plot_fig_2, which plots the Lambda-Lambdabar delta the same way)."""
+    files = dict_input['dv1dy_coal']
+    fig = plt.figure(figsize=(kwargs['ncols']*4, kwargs['nrows']*4))
+    gs = fig.add_gridspec(ncols=kwargs['ncols'], nrows=kwargs['nrows'], hspace=0, wspace=0)
+    ax = gs.subplots(sharex='col', sharey='row').flatten()
+    scaling = {0: 1, 1: 1, 2: 1, 3: 1, 4: 1, 5: 0.5, 6: 0.5}
+    if kwargs['ncols'] == 3:
+        scaling = {0: 4, 1: 2, 2: 2, 3: 2, 4: 1, 5: 1}
+    cfg = plot_config['Lambda']
+    cfg_nolabel = {k: v for k, v in cfg.items() if k != 'label'}
+    for i, f in enumerate(reversed(files)):
+        with open(f, 'r') as file:
+            data_dict = yaml.load(file, Loader=yaml.CLoader)
+        energy = f.split('/')[-1].replace('.yaml', '').split('_')[-1].replace('p', '.')
+        scale = scaling[i]
+        x = np.array(data_dict['x'])
+        dp = DataPoint([], [], [])
+        dp.add_point(np.array(data_dict[value_key]),
+                     np.array(data_dict[f'{value_key}_err_stat']),
+                     np.array(data_dict[f'{value_key}_err_sys']))
+        ax[i].errorbar(x - 0.75, dp.value*scale, yerr=dp.stat_error*scale, **cfg_nolabel)
+        for j, cent in enumerate(x):
+            ax[i].fill_between(np.array([cent-0.75-1.0, cent-0.75+1.0]),
+                               y1=dp.value[j]*scale - dp.sys_error[j]*scale,
+                               y2=dp.value[j]*scale + dp.sys_error[j]*scale,
+                               color=cfg['color'], alpha=0.4, linewidth=0)
+        ax[i].set_yticks(np.linspace(-0.2, 0.2, 5))
+        ax[i].tick_params(**tick_params)
+        ax[i].annotate(energy.split('GeV')[0] + ' GeV', xy=(0.85, 0.9), fontsize=18,
+                       xycoords='axes fraction', horizontalalignment='right')
+        if scale != 1:
+            ax[i].annotate(fr'$\times$ {scale}', xy=(0.25, 0.2), fontsize=15,
+                           xycoords='axes fraction', horizontalalignment='right')
+        ax[i].hlines(0, 0, 80, linestyles='--', colors='k')
+        ax[i].set_ylim(-0.149, 0.099)
+    fig.add_subplot(111, frameon=False)
+    plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
+    plt.grid(False)
+    plt.xlabel(r'$\text{Centrality (%)}$', fontsize=18, labelpad=10)
+    plt.ylabel(r'$dv_1/dy$', fontsize=18, labelpad=25)
+    index_legend = 7 if kwargs['ncols'] == 4 else 0
+    ax[index_legend].annotate('Au+Au', xy=(0.35, 0.88), fontsize=22, xycoords='axes fraction')
+    ax[index_legend].errorbar([], [], yerr=[], **cfg_nolabel, label=series_label)
+    ax[index_legend].legend(fontsize=14, frameon=False, loc='center')
+    ax[index_legend].tick_params(**tick_params)
+    plt.figure(fig.number)
+    base = input_path.replace('_yaml', '').replace('/sys_tag_0', '')
+    plt.savefig(f'{base}/{name}.pdf')
+    plt.savefig(f'{base}/{name}.svg', format='svg', transparent=True, bbox_inches='tight', pad_inches=0)
+    figs.append(fig)
+    plt.close()
+    return figs
+
+
+def plot_fig_2_netlambda(dict_input, figs, input_path, **kwargs):
+    return _plot_fig2_combination(dict_input, figs, input_path, value_key='netlambda',
+                                  name='fig_2_netlambda', series_label=r'net-$\Lambda$', **kwargs)
+
+
+def plot_fig_2_excesslambda(dict_input, figs, input_path, **kwargs):
+    return _plot_fig2_combination(dict_input, figs, input_path, value_key='excesslambda',
+                                  name='fig_2_excesslambda', series_label=r'$\Lambda$-excess', **kwargs)
+
+
 def plot_dv1dy_coal(dict_input, figs, input_path, **kwargs):
     ### v1 coal comparison for all energies
     files = dict_input['dv1dy_coal']
@@ -618,16 +739,25 @@ def plot_dv1dy_coal(dict_input, figs, input_path, **kwargs):
             l_err = np.array(data_dict['lambda_err'])
             lb = np.array(data_dict['lambdabar'])
             lb_err = np.array(data_dict['lambdabar_err'])
+            # per-centrality yield-weighted combinations (fig_2-style net-/excess-Lambda)
+            nl = np.array(data_dict['netlambda'])
+            nl_err = np.array(data_dict['netlambda_err'])
+            ex = np.array(data_dict['excesslambda'])
+            ex_err = np.array(data_dict['excesslambda_err'])
             energy = f.split('/')[-1].replace('.yaml', '').split('_')[-1]
-            
+
             df = pd.DataFrame({
-                'centrality': x, 
-                'dv1dy_lambda': l, 
-                'dv1dy_lambda_err': l_err, 
-                'dv1dy_lambdabar': lb, 
-                'dv1dy_lambdabar_err': lb_err, 
-                'delta_dv1dy': y, 
-                'delta_dv1dy_err': yerr
+                'centrality': x,
+                'dv1dy_lambda': l,
+                'dv1dy_lambda_err': l_err,
+                'dv1dy_lambdabar': lb,
+                'dv1dy_lambdabar_err': lb_err,
+                'delta_dv1dy': y,
+                'delta_dv1dy_err': yerr,
+                'dv1dy_netlambda': nl,
+                'dv1dy_netlambda_err': nl_err,
+                'dv1dy_excesslambda': ex,
+                'dv1dy_excesslambda_err': ex_err
                 })
             ### if this is final conversion, also contains sys and stats separately
             if 'yerr_sys' in data_dict:
@@ -637,17 +767,27 @@ def plot_dv1dy_coal(dict_input, figs, input_path, **kwargs):
                 lambda_err_stat = np.array(data_dict['lambda_err_stat'])
                 lambdabar_err_sys = np.array(data_dict['lambdabar_err_sys'])
                 lambdabar_err_stat = np.array(data_dict['lambdabar_err_stat'])
+                netlambda_err_sys = np.array(data_dict['netlambda_err_sys'])
+                netlambda_err_stat = np.array(data_dict['netlambda_err_stat'])
+                excesslambda_err_sys = np.array(data_dict['excesslambda_err_sys'])
+                excesslambda_err_stat = np.array(data_dict['excesslambda_err_stat'])
                 df = pd.DataFrame({
-                    'centrality': x, 
-                    'dv1dy_lambda': l, 
-                    'dv1dy_lambda_err_sys': lambda_err_sys, 
-                    'dv1dy_lambda_err_stat': lambda_err_stat, 
-                    'dv1dy_lambdabar': lb, 
-                    'dv1dy_lambdabar_err_sys': lambdabar_err_sys, 
-                    'dv1dy_lambdabar_err_stat': lambdabar_err_stat, 
-                    'delta_dv1dy': y, 
-                    'delta_dv1dy_err_sys': yerr_sys, 
-                    'delta_dv1dy_err_stat': yerr_stat})
+                    'centrality': x,
+                    'dv1dy_lambda': l,
+                    'dv1dy_lambda_err_sys': lambda_err_sys,
+                    'dv1dy_lambda_err_stat': lambda_err_stat,
+                    'dv1dy_lambdabar': lb,
+                    'dv1dy_lambdabar_err_sys': lambdabar_err_sys,
+                    'dv1dy_lambdabar_err_stat': lambdabar_err_stat,
+                    'delta_dv1dy': y,
+                    'delta_dv1dy_err_sys': yerr_sys,
+                    'delta_dv1dy_err_stat': yerr_stat,
+                    'dv1dy_netlambda': nl,
+                    'dv1dy_netlambda_err_sys': netlambda_err_sys,
+                    'dv1dy_netlambda_err_stat': netlambda_err_stat,
+                    'dv1dy_excesslambda': ex,
+                    'dv1dy_excesslambda_err_sys': excesslambda_err_sys,
+                    'dv1dy_excesslambda_err_stat': excesslambda_err_stat})
             df.to_csv(input_path.replace('_yaml', '').replace('/sys_tag_0', '') + f'/data_points/dv1dy_{energy}.csv', index=False)
     return figs
 
@@ -1045,6 +1185,7 @@ def plot_v1_y(dict_input, figs, input_path, **kwargs):
             df.to_csv(input_path.replace('_yaml', '').replace('/sys_tag_0', '') + f'/data_points/v1_y_{energy}.csv', index=False)
 
     return figs
+
 
 def plot_dv1dy_baryons(dict_input, figs, input_path, **kwargs):
     ### v1 coal comparison for all energies
@@ -1573,21 +1714,22 @@ def plot_dv1dy_energy_dependence(dict_input, figs, input_path, proton_fit='linea
                                     y1=datapoints['combo1_010'].value[i] - datapoints['combo1_010'].sys_error[i],
                                     y2=datapoints['combo1_010'].value[i] + datapoints['combo1_010'].sys_error[i],
                                     color=plot_config['combo']['color'], alpha=0.4, linewidth=0)
-        # calculate chi2/ndf
-        chi2ndf_2 = calculate_chi2_per_ndf(datapoints['delta_lambdas_010']-datapoints['combo2_010'], DataPoint(np.zeros(len(energies))), nparams=0) # compare with zero
-        chi2ndf_1 = calculate_chi2_per_ndf(datapoints['delta_lambdas_010']-datapoints['combo1_010'], DataPoint(np.zeros(len(energies))), nparams=0) # compare with zero
+        # signed log-likelihood-ratio statistic (Z>0 favors p-K, Z<0 favors p) replaces
+        # the two separate chi2/ndf; chi2/ndf of the preferred reference kept as a flag
+        z_010 = signed_z_preference(datapoints['delta_lambdas_010'], datapoints['delta_protons_010'], datapoints['delta_kaons_010'])
+        z_lbl_010, gof_lbl_010 = _z_labels(z_010)
         ax_dep_010.axhline(0, linestyle='dashed', color='black')
         # ax_dep_010.legend(loc='upper right', fontsize=15, frameon=False)
         # ax_dep_010.set_xlabel(r'$\sqrt{s_{\text{NN}}}$ (GeV)', fontsize=16)
         if is_horizontal:
             ax_dep_010.annotate('0-10%', xy=(0.45, 0.85), xycoords='axes fraction', fontsize=24)
-            ax_dep_010.annotate(fr'$\chi^2$/ndf (p) = {chi2ndf_2:.2f}', xy=(0.45, 0.78), xycoords='axes fraction', fontsize=18)
-            ax_dep_010.annotate(fr'$\chi^2$/ndf (p - K) = {chi2ndf_1:.2f}', xy=(0.45, 0.71), xycoords='axes fraction', fontsize=18)
+            ax_dep_010.annotate(z_lbl_010, xy=(0.45, 0.78), xycoords='axes fraction', fontsize=18)
+            ax_dep_010.annotate(gof_lbl_010, xy=(0.45, 0.71), xycoords='axes fraction', fontsize=18)
             ax_dep_010.set_xticks(energies, labels=energies)
         else:
             ax_dep_010.annotate('0-10%', xy=(0.45, 0.85), xycoords='axes fraction', fontsize=20)
-            ax_dep_010.annotate(fr'$\chi^2$/ndf (p) = {chi2ndf_2:.2f}', xy=(0.45, 0.75), xycoords='axes fraction', fontsize=14)
-            ax_dep_010.annotate(fr'$\chi^2$/ndf (p - K) = {chi2ndf_1:.2f}', xy=(0.45, 0.65), xycoords='axes fraction', fontsize=14)
+            ax_dep_010.annotate(z_lbl_010, xy=(0.45, 0.75), xycoords='axes fraction', fontsize=14)
+            ax_dep_010.annotate(gof_lbl_010, xy=(0.45, 0.65), xycoords='axes fraction', fontsize=14)
         ax_dep_010.tick_params(**tick_params)
         ax_dep_010.yaxis.set_major_locator(ticker.MultipleLocator(0.02))
 
@@ -1613,22 +1755,23 @@ def plot_dv1dy_energy_dependence(dict_input, figs, input_path, proton_fit='linea
                                     y1=datapoints['combo1_1040'].value[i] - datapoints['combo1_1040'].sys_error[i],
                                     y2=datapoints['combo1_1040'].value[i] + datapoints['combo1_1040'].sys_error[i],
                                     color=plot_config['combo']['color'], alpha=0.4, linewidth=0)
-        # calculate chi2/ndf
-        chi2ndf_2 = calculate_chi2_per_ndf(datapoints['delta_lambdas_1040']-datapoints['combo2_1040'], DataPoint(np.zeros(len(energies))), nparams=0) # compare with zero
-        chi2ndf_1 = calculate_chi2_per_ndf(datapoints['delta_lambdas_1040']-datapoints['combo1_1040'], DataPoint(np.zeros(len(energies))), nparams=0) # compare with zero
+        # signed log-likelihood-ratio statistic (Z>0 favors p-K, Z<0 favors p) replaces
+        # the two separate chi2/ndf; chi2/ndf of the preferred reference kept as a flag
+        z_1040 = signed_z_preference(datapoints['delta_lambdas_1040'], datapoints['delta_protons_1040'], datapoints['delta_kaons_1040'])
+        z_lbl_1040, gof_lbl_1040 = _z_labels(z_1040)
         ax_dep_1040.axhline(0, linestyle='dashed', color='black')
-        
+
         # plt.subplots_adjust(left=0.15, right=0.95, top=0.95, bottom=0.12)
         if is_horizontal:
             ax_dep_1040.set_xticks(energies, labels=energies)
             ax_dep_1040.annotate('10-40%', xy=(0.45, 0.21), xycoords='axes fraction', fontsize=24)
-            ax_dep_1040.annotate(fr'$\chi^2$/ndf (p) = {chi2ndf_2:.2f}', xy=(0.45, 0.14), xycoords='axes fraction', fontsize=18)
-            ax_dep_1040.annotate(fr'$\chi^2$/ndf (p - K) = {chi2ndf_1:.2f}', xy=(0.45, 0.07), xycoords='axes fraction', fontsize=18)
+            ax_dep_1040.annotate(z_lbl_1040, xy=(0.45, 0.14), xycoords='axes fraction', fontsize=18)
+            ax_dep_1040.annotate(gof_lbl_1040, xy=(0.45, 0.07), xycoords='axes fraction', fontsize=18)
             ax_dep_1040.legend(loc='upper right', fontsize=18, frameon=False, title=r'$p_{T}$, $p$ in GeV/$c$', title_fontsize=15)
         else:
             ax_dep_1040.annotate('10-40%', xy=(0.2, 0.85), xycoords='axes fraction', fontsize=20)
-            ax_dep_1040.annotate(fr'$\chi^2$/ndf (p) = {chi2ndf_2:.2f}', xy=(0.2, 0.75), xycoords='axes fraction', fontsize=14)
-            ax_dep_1040.annotate(fr'$\chi^2$/ndf (p - K) = {chi2ndf_1:.2f}', xy=(0.2, 0.65), xycoords='axes fraction', fontsize=14)
+            ax_dep_1040.annotate(z_lbl_1040, xy=(0.2, 0.75), xycoords='axes fraction', fontsize=14)
+            ax_dep_1040.annotate(gof_lbl_1040, xy=(0.2, 0.65), xycoords='axes fraction', fontsize=14)
             ax_dep_1040.legend(loc='upper right', fontsize=13, frameon=False, title=r'$p_{T}$, $p$ in GeV/$c$', title_fontsize=13)
         ax_dep_1040.tick_params(**tick_params)
         ax_dep_1040.yaxis.set_major_locator(ticker.MultipleLocator(0.02))
@@ -1656,20 +1799,21 @@ def plot_dv1dy_energy_dependence(dict_input, figs, input_path, proton_fit='linea
                                     y2=datapoints['combo1_4080'].value[i] + datapoints['combo1_4080'].sys_error[i],
                                     color=plot_config['combo']['color'], alpha=0.4, linewidth=0)
             
-        # calculate chi2/ndf
-        chi2ndf_2 = calculate_chi2_per_ndf(datapoints['delta_lambdas_4080']-datapoints['combo2_4080'], DataPoint(np.zeros(len(energies))), nparams=0) # compare with zero
-        chi2ndf_1 = calculate_chi2_per_ndf(datapoints['delta_lambdas_4080']-datapoints['combo1_4080'], DataPoint(np.zeros(len(energies))), nparams=0) # compare with zero
+        # signed log-likelihood-ratio statistic (Z>0 favors p-K, Z<0 favors p) replaces
+        # the two separate chi2/ndf; chi2/ndf of the preferred reference kept as a flag
+        z_4080 = signed_z_preference(datapoints['delta_lambdas_4080'], datapoints['delta_protons_4080'], datapoints['delta_kaons_4080'])
+        z_lbl_4080, gof_lbl_4080 = _z_labels(z_4080)
         ax_dep_4080.axhline(0, linestyle='dashed', color='black')
         plt.subplots_adjust(left=0.15, right=0.95, top=0.95, bottom=0.12)
         if is_horizontal:
             ax_dep_4080.set_xticks(energies, labels=energies)
             ax_dep_4080.annotate('40-80%', xy=(0.45, 0.85), xycoords='axes fraction', fontsize=24)
-            ax_dep_4080.annotate(fr'$\chi^2$/ndf (p) = {chi2ndf_2:.2f}', xy=(0.45, 0.78), xycoords='axes fraction', fontsize=18)
-            ax_dep_4080.annotate(fr'$\chi^2$/ndf (p - K) = {chi2ndf_1:.2f}', xy=(0.45, 0.71), xycoords='axes fraction', fontsize=18)
+            ax_dep_4080.annotate(z_lbl_4080, xy=(0.45, 0.78), xycoords='axes fraction', fontsize=18)
+            ax_dep_4080.annotate(gof_lbl_4080, xy=(0.45, 0.71), xycoords='axes fraction', fontsize=18)
         else:
             ax_dep_4080.annotate('40-80%', xy=(0.45, 0.85), xycoords='axes fraction', fontsize=20)
-            ax_dep_4080.annotate(fr'$\chi^2$/ndf (p) = {chi2ndf_2:.2f}', xy=(0.45, 0.75), xycoords='axes fraction', fontsize=14)
-            ax_dep_4080.annotate(fr'$\chi^2$/ndf (p - K) = {chi2ndf_1:.2f}', xy=(0.45, 0.65), xycoords='axes fraction', fontsize=14)
+            ax_dep_4080.annotate(z_lbl_4080, xy=(0.45, 0.75), xycoords='axes fraction', fontsize=14)
+            ax_dep_4080.annotate(gof_lbl_4080, xy=(0.45, 0.65), xycoords='axes fraction', fontsize=14)
         ax_dep_4080.tick_params(**tick_params)
         ax_dep_4080.set_xticks(energies, labels=energies)
         ax_dep_4080.yaxis.set_major_locator(ticker.MultipleLocator(0.02))
@@ -2308,6 +2452,236 @@ def plot_BESI_coal(dict_input, figs, input_path):
     plt.close()
     return figs
 
+def plot_v1_y_netlambda(dict_input, figs, input_path, **kwargs):
+    """net-Lambda v1(y) per merged centrality across energies (mirrors plot_v1_y for the
+    yield-weighted net-particle observable `v1_y_netlambda_{cent}`). Also writes the
+    per-energy data_points CSV."""
+    files = dict_input['dv1dy_coal']
+    fig_net = plt.figure(figsize=(kwargs['ncols']*4, kwargs['nrows']*4))
+    gs_net = fig_net.add_gridspec(ncols=kwargs['ncols'], nrows=kwargs['nrows'], hspace=0, wspace=0)
+    ax_net = gs_net.subplots(sharex='col', sharey='row').flatten()
+    scaling = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 6, 6: 6}
+    scaling = {ind: scaling[len(scaling) - 1 - ind] for ind in scaling}
+    cent_styles = [('4080', 'Lambda'), ('1040', 'combo'), ('010', 'combo2')]
+    cent_label = {'4080': r'$40-80\%$', '1040': r'$10-40\%$', '010': r'$0-10\%$'}
+    for i, f in enumerate(reversed(files)):
+        with open(f, 'r') as file:
+            data_dict = yaml.load(file, Loader=yaml.CLoader)
+        energy = f.split('/')[-1].replace('.yaml', '').split('_')[-1].replace('p', '.')
+        scale = scaling[i]
+        for cent, cfgkey in cent_styles:
+            d = data_dict[f'v1_y_netlambda_{cent}']
+            x = np.array(d['y'])
+            v = np.array(d['value'])
+            e = np.array(d['error_stat'])
+            ax_net[i].errorbar(x, v*scale, yerr=e*scale, **plot_config[cfgkey])
+        ax_net[i].annotate(r'$\sqrt{s_{\text{NN}}}=$' + energy, xy=(0.85, 0.9), fontsize=15,
+                           xycoords='axes fraction', horizontalalignment='right')
+        if scale != 1:
+            ax_net[i].annotate(f'{scale}x', xy=(0.2, 0.2), fontsize=15, xycoords='axes fraction',
+                               horizontalalignment='right')
+        ax_net[i].hlines(0, -1.05, 1.05, linestyles='--', colors='k')
+        ax_net[i].set_ylim(-0.249, 0.249)
+    fig_net.add_subplot(111, frameon=False)
+    plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
+    plt.grid(False)
+    plt.xlabel(r'$y$', fontsize=15)
+    plt.ylabel(r'$v_1^{\,\mathrm{net}\text{-}\Lambda}(y)$', fontsize=15, labelpad=20)
+    index_legend = 7 if kwargs['ncols'] == 4 else 0
+    if kwargs['ncols'] == 4:
+        for cent, cfgkey in cent_styles:
+            ax_net[index_legend].errorbar([], [], yerr=[],
+                **{k: v for k, v in plot_config[cfgkey].items() if k != 'label'}, label=cent_label[cent])
+        ax_net[index_legend].tick_params(axis='x', which='both', length=0)
+    ax_net[index_legend].legend(fontsize=15, frameon=False, loc='center')
+    plt.figure(fig_net.number)
+    base = input_path.replace('_yaml', '').replace('/sys_tag_0', '')
+    plt.savefig(base + '/v1_y_netlambda.pdf')
+    plt.savefig(base + '/v1_y_netlambda.svg', format='svg')
+    figs.append(fig_net)
+    plt.close()
+
+    # data points CSV per energy
+    for f in reversed(files):
+        with open(f, 'r') as file:
+            data_dict = yaml.load(file, Loader=yaml.CLoader)
+        energy = f.split('/')[-1].replace('.yaml', '').split('_')[-1]
+        cols = {'y': np.array([round(yy, 2) for yy in data_dict['v1_y_netlambda_4080']['y']])}
+        for cent in ['4080', '1040', '010', '5080']:
+            d = data_dict[f'v1_y_netlambda_{cent}']
+            cols[f'v1_y_netlambda_{cent}'] = np.array(d['value'])
+            cols[f'v1_y_netlambda_{cent}_err'] = np.array(d['error_stat'])
+            cols[f'v1_y_netlambda_{cent}_err_sys'] = np.array(d['error_sys'])
+        pd.DataFrame(cols).to_csv(base + f'/data_points/v1_y_netlambda_{energy}.csv', index=False)
+    return figs
+
+
+def plot_netlambda_energy_dependence(dict_input, figs, input_path):
+    """net-Lambda dv1/dy vs sqrt(s_NN), fig_3-style 3 centrality panels, net-Lambda alone.
+    (The coalescence-reference overlay is deferred until piKp yields are available.)"""
+    files = dict_input['dv1dy_coal']
+    energies = [float(f.split('/')[-1].replace('.yaml', '').split('_')[-1].replace('p', '.').replace('GeV', '')) for f in files]
+    cent_ranges = ['010', '1040', '4080']
+    cent_title = {'010': '0-10%', '1040': '10-40%', '4080': '40-80%'}
+    dps = {c: DataPoint([], [], []) for c in cent_ranges}
+    for f in files:
+        with open(f, 'r') as file:
+            data_dict = yaml.load(file, Loader=yaml.CLoader)
+        for c in cent_ranges:
+            d = data_dict[f'dv1dy_netlambda_{c}']
+            dps[c].add_point(d['value'], d['error_stat'], d['error_sys'])
+    e = np.array(energies)
+    cfg = plot_config['Lambda']
+    cfg_nolabel = {k: v for k, v in cfg.items() if k != 'label'}
+    for is_horizontal in (False, True):
+        fig = plt.figure(figsize=(20, 8) if is_horizontal else (8, 12))
+        gs = fig.add_gridspec(ncols=3 if is_horizontal else 1, nrows=1 if is_horizontal else 3, hspace=0, wspace=0)
+        axes = gs.subplots(sharex='col', sharey='row').flatten()
+        for ax, c in zip(axes, cent_ranges):
+            dp = dps[c]
+            ax.errorbar(e, dp.value, yerr=dp.stat_error, label=r'net-$\Lambda$', **cfg_nolabel)
+            for i in range(len(e)):
+                ax.fill_between([e[i]-0.3, e[i]+0.3], y1=dp.value[i]-dp.sys_error[i],
+                                y2=dp.value[i]+dp.sys_error[i], color=cfg['color'], alpha=0.4, linewidth=0)
+            ax.axhline(0, linestyle='dashed', color='black')
+            ax.set_xticks(energies, labels=energies)
+            ax.tick_params(**tick_params)
+            ax.yaxis.set_major_locator(ticker.MultipleLocator(0.02))
+            ax.annotate(cent_title[c], xy=(0.45, 0.85), xycoords='axes fraction',
+                        fontsize=24 if is_horizontal else 20)
+        fig.add_subplot(111, frameon=False)
+        plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
+        plt.grid(False)
+        plt.xlabel(r'$\sqrt{s_{\text{NN}}}$ (GeV)', fontsize=24 if is_horizontal else 18, labelpad=10)
+        plt.ylabel(r'$dv_1/dy\ (\mathrm{net}\text{-}\Lambda)$', fontsize=24 if is_horizontal else 18,
+                   labelpad=30 if is_horizontal else 18)
+        plt.subplots_adjust(left=0.15, right=0.95, top=0.95, bottom=0.12)
+        base = input_path.replace('_yaml', '').replace('/sys_tag_0', '')
+        name = 'fig_netlambda_horizontal' if is_horizontal else 'fig_netlambda_vertical'
+        if is_horizontal:
+            plt.tight_layout()
+        plt.savefig(f'{base}/{name}.pdf')
+        plt.savefig(f'{base}/{name}.svg', format='svg', transparent=True, bbox_inches='tight', pad_inches=0)
+        figs.append(fig)
+        plt.close()
+    return figs
+
+
+def plot_v1_y_excesslambda(dict_input, figs, input_path, **kwargs):
+    """excess-Lambda v1(y) per merged centrality across energies (mirrors
+    plot_v1_y_netlambda for the observable `v1_y_excesslambda_{cent}` =
+    (v1_L - v1_Lb)/(1 - S_Lb/S_L)). Also writes the per-energy data_points CSV."""
+    files = dict_input['dv1dy_coal']
+    fig_exc = plt.figure(figsize=(kwargs['ncols']*4, kwargs['nrows']*4))
+    gs_exc = fig_exc.add_gridspec(ncols=kwargs['ncols'], nrows=kwargs['nrows'], hspace=0, wspace=0)
+    ax_exc = gs_exc.subplots(sharex='col', sharey='row').flatten()
+    scaling = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 6, 6: 6}
+    scaling = {ind: scaling[len(scaling) - 1 - ind] for ind in scaling}
+    cent_styles = [('4080', 'Lambda'), ('1040', 'combo'), ('010', 'combo2')]
+    cent_label = {'4080': r'$40-80\%$', '1040': r'$10-40\%$', '010': r'$0-10\%$'}
+    for i, f in enumerate(reversed(files)):
+        with open(f, 'r') as file:
+            data_dict = yaml.load(file, Loader=yaml.CLoader)
+        energy = f.split('/')[-1].replace('.yaml', '').split('_')[-1].replace('p', '.')
+        scale = scaling[i]
+        for cent, cfgkey in cent_styles:
+            d = data_dict[f'v1_y_excesslambda_{cent}']
+            x = np.array(d['y'])
+            v = np.array(d['value'])
+            e = np.array(d['error_stat'])
+            ax_exc[i].errorbar(x, v*scale, yerr=e*scale, **plot_config[cfgkey])
+        ax_exc[i].annotate(r'$\sqrt{s_{\text{NN}}}=$' + energy, xy=(0.85, 0.9), fontsize=15,
+                           xycoords='axes fraction', horizontalalignment='right')
+        if scale != 1:
+            ax_exc[i].annotate(f'{scale}x', xy=(0.2, 0.2), fontsize=15, xycoords='axes fraction',
+                               horizontalalignment='right')
+        ax_exc[i].hlines(0, -1.05, 1.05, linestyles='--', colors='k')
+        ax_exc[i].set_ylim(-0.249, 0.249)
+    fig_exc.add_subplot(111, frameon=False)
+    plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
+    plt.grid(False)
+    plt.xlabel(r'$y$', fontsize=15)
+    plt.ylabel(r'$v_1^{\,\Lambda\text{-excess}}(y)$', fontsize=15, labelpad=20)
+    index_legend = 7 if kwargs['ncols'] == 4 else 0
+    if kwargs['ncols'] == 4:
+        for cent, cfgkey in cent_styles:
+            ax_exc[index_legend].errorbar([], [], yerr=[],
+                **{k: v for k, v in plot_config[cfgkey].items() if k != 'label'}, label=cent_label[cent])
+        ax_exc[index_legend].tick_params(axis='x', which='both', length=0)
+    ax_exc[index_legend].legend(fontsize=15, frameon=False, loc='center')
+    plt.figure(fig_exc.number)
+    base = input_path.replace('_yaml', '').replace('/sys_tag_0', '')
+    plt.savefig(base + '/v1_y_excesslambda.pdf')
+    plt.savefig(base + '/v1_y_excesslambda.svg', format='svg')
+    figs.append(fig_exc)
+    plt.close()
+
+    # data points CSV per energy
+    for f in reversed(files):
+        with open(f, 'r') as file:
+            data_dict = yaml.load(file, Loader=yaml.CLoader)
+        energy = f.split('/')[-1].replace('.yaml', '').split('_')[-1]
+        cols = {'y': np.array([round(yy, 2) for yy in data_dict['v1_y_excesslambda_4080']['y']])}
+        for cent in ['4080', '1040', '010', '5080']:
+            d = data_dict[f'v1_y_excesslambda_{cent}']
+            cols[f'v1_y_excesslambda_{cent}'] = np.array(d['value'])
+            cols[f'v1_y_excesslambda_{cent}_err'] = np.array(d['error_stat'])
+            cols[f'v1_y_excesslambda_{cent}_err_sys'] = np.array(d['error_sys'])
+        pd.DataFrame(cols).to_csv(base + f'/data_points/v1_y_excesslambda_{energy}.csv', index=False)
+    return figs
+
+
+def plot_excesslambda_energy_dependence(dict_input, figs, input_path):
+    """excess-Lambda dv1/dy vs sqrt(s_NN), fig_3-style 3 centrality panels, excess-Lambda
+    alone. (The coalescence-reference overlay is deferred until piKp yields are available.)"""
+    files = dict_input['dv1dy_coal']
+    energies = [float(f.split('/')[-1].replace('.yaml', '').split('_')[-1].replace('p', '.').replace('GeV', '')) for f in files]
+    cent_ranges = ['010', '1040', '4080']
+    cent_title = {'010': '0-10%', '1040': '10-40%', '4080': '40-80%'}
+    dps = {c: DataPoint([], [], []) for c in cent_ranges}
+    for f in files:
+        with open(f, 'r') as file:
+            data_dict = yaml.load(file, Loader=yaml.CLoader)
+        for c in cent_ranges:
+            d = data_dict[f'dv1dy_excesslambda_{c}']
+            dps[c].add_point(d['value'], d['error_stat'], d['error_sys'])
+    e = np.array(energies)
+    cfg = plot_config['Lambda']
+    cfg_nolabel = {k: v for k, v in cfg.items() if k != 'label'}
+    for is_horizontal in (False, True):
+        fig = plt.figure(figsize=(20, 8) if is_horizontal else (8, 12))
+        gs = fig.add_gridspec(ncols=3 if is_horizontal else 1, nrows=1 if is_horizontal else 3, hspace=0, wspace=0)
+        axes = gs.subplots(sharex='col', sharey='row').flatten()
+        for ax, c in zip(axes, cent_ranges):
+            dp = dps[c]
+            ax.errorbar(e, dp.value, yerr=dp.stat_error, label=r'excess-$\Lambda$', **cfg_nolabel)
+            for i in range(len(e)):
+                ax.fill_between([e[i]-0.3, e[i]+0.3], y1=dp.value[i]-dp.sys_error[i],
+                                y2=dp.value[i]+dp.sys_error[i], color=cfg['color'], alpha=0.4, linewidth=0)
+            ax.axhline(0, linestyle='dashed', color='black')
+            ax.set_xticks(energies, labels=energies)
+            ax.tick_params(**tick_params)
+            ax.yaxis.set_major_locator(ticker.MultipleLocator(0.02))
+            ax.annotate(cent_title[c], xy=(0.45, 0.85), xycoords='axes fraction',
+                        fontsize=24 if is_horizontal else 20)
+        fig.add_subplot(111, frameon=False)
+        plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
+        plt.grid(False)
+        plt.xlabel(r'$\sqrt{s_{\text{NN}}}$ (GeV)', fontsize=24 if is_horizontal else 18, labelpad=10)
+        plt.ylabel(r'$dv_1/dy\ (\Lambda\text{-excess})$', fontsize=24 if is_horizontal else 18,
+                   labelpad=30 if is_horizontal else 18)
+        plt.subplots_adjust(left=0.15, right=0.95, top=0.95, bottom=0.12)
+        base = input_path.replace('_yaml', '').replace('/sys_tag_0', '')
+        name = 'fig_excesslambda_horizontal' if is_horizontal else 'fig_excesslambda_vertical'
+        if is_horizontal:
+            plt.tight_layout()
+        plt.savefig(f'{base}/{name}.pdf')
+        plt.savefig(f'{base}/{name}.svg', format='svg', transparent=True, bbox_inches='tight', pad_inches=0)
+        figs.append(fig)
+        plt.close()
+    return figs
+
+
 def main(dict_input, output_file=None):
     figs = []
 
@@ -2321,11 +2695,15 @@ def main(dict_input, output_file=None):
     # figs = plot_dv1dy_coal_one_energy(dict_input, figs, input_path)
     # figs = plot_dv1dy_KP(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
     figs = plot_fig_2(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
+    figs = plot_fig_2_netlambda(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
+    figs = plot_fig_2_excesslambda(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
     figs = plot_dv1dy_coal(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
     figs = plot_dv1dy_model(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
     figs = plot_v1_merged_centrality(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
     figs = plot_v1_pt(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
     figs = plot_v1_y(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
+    figs = plot_v1_y_netlambda(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
+    figs = plot_v1_y_excesslambda(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
     # figs = plot_d3v1dy3_coal(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
     # figs = plot_dv1dy_coal_xi(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
     # figs = plot_dv1dy_baryons(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
@@ -2334,6 +2712,8 @@ def main(dict_input, output_file=None):
     figs = plot_ds_comparison(dict_input, figs, input_path, ncols=ncol, nrows=nrow)
     figs = plot_dv1dy_energy_dependence(dict_input, figs, input_path)
     figs = plot_dv1dy_energy_dependence(dict_input, figs, input_path, proton_fit='cubic')
+    figs = plot_netlambda_energy_dependence(dict_input, figs, input_path)
+    figs = plot_excesslambda_energy_dependence(dict_input, figs, input_path)
     figs = plot_PT_energy_dependence(dict_input, figs, input_path)
     figs = plot_BESI_coal(dict_input, figs, input_path)
 
