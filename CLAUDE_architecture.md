@@ -22,10 +22,13 @@ data/*.root (raw ROOT files)
 ## Systematic Uncertainty Structure
 
 - `sys_tag_0`: default dataset
-- `sys_tag_1,2,3`: regular systematics (different subsets of same data)
-- `special_sys_tag_5,6`: special systematics (same dataset, varied analysis cuts)
+- `sys_tag_1,2,3`: regular systematics (different upstream cuts, all seven energies)
+- `special_sys_tag_5,8`: positive-/negative-y half-range dv1/dy fits (same dataset), combined as one **paired** systematic with divisor 12 (full-width uniform)
+- `special_sys_tag_7`: y-integrated (1D in pT) efficiency correction
+- `special_sys_tag_6` (cubic fit order) is implemented but **excluded** from the combination — cubic overfitting, not a real fit-order effect
 - `combine_sys` rule aggregates all into `plots/final/paper_yaml/`
-- Systematic uncertainty uses `sys_divisor` from `config.yaml` (currently 3, i.e. half-width uniform distribution assumption)
+- Non-paired tags use `sys_divisor` from `config.yaml` (currently 3, i.e. half-width uniform distribution assumption)
+- Full detail: `docs/systematics.md`
 
 ## Key Python Scripts (`scripts/`)
 
@@ -41,6 +44,15 @@ data/*.root (raw ROOT files)
 | `data_point.py` | `DataPoint` class: value with separate stat/sys errors; supports arithmetic. |
 | `param_storage.py` | `ParamStorage`: fit parameters with optional freezing between fits. |
 | `find_bin_center.py` | `BinCenterFinder`: weighted bin centers for non-uniform distributions. |
+| `fig3_5080.py` | fig 3 variants (50–80% and/or alternative pT cuts); never writes the unsuffixed `fig_3_*`. |
+| `gen_fig2.py` | fig 2 with a swappable piKp reference module (`--pikp_module`). |
+| `gen_pikp_merged.py` | Generates `pikp_merged*.py` from the piKp txt datapoint files. |
+| `run_10ybin.py` | Standalone driver: re-runs the v1(y) chain at `yrebin=2` into `result/10ybin/`, `plots/10ybin/`. Not in the Snakefile. |
+| `plot_v1_y_10bin.py` | Final 10-y-bin v1(y) figures/CSVs from the `run_10ybin.py` output. |
+| `plot_v1_cen_y_final.py` | 3×3 raw-centrality v1(y) (or Δv1(y) with `--delta`) with per-point systematics from tags 1,2,3,7. |
+| `closure_test_v1.py` | Toy closure test of the v1 extraction fit. |
+| `plot_eff_*.py` | Efficiency QA and impact-on-result diagnostics. |
+| `quark_v1_bayes.py` | Exploratory Bayesian constituent-quark v1 extraction. |
 
 ## C++ ROOT Scripts (`scripts/`)
 
@@ -58,12 +70,12 @@ data/*.root (raw ROOT files)
 data/
   result*_{energy}.root                        # default dataset per energy
   sys_tag_{1,2,3}/result*.root                 # systematic variation datasets
-  eff/result*_{lambda,lambdabar}_exp_{energy}.root  # efficiency files (19p6GeV, 27GeV)
+  eff/result*_{lambda,lambdabar}_exp_{energy}.root  # efficiency files (all 7 energies, both species)
   v1_piKp/{energy}/{particle}/                 # piKp reference data
   model/{urqmd,ampt}/{energy}.root             # model comparisons
 ```
 
-Efficiency corrections are applied for Lambda and Lambdabar at 19p6GeV and 27GeV (when eff files are present in `data/eff/`).
+Efficiency corrections are applied for Lambda and Lambdabar at every energy for which an eff file is present in `data/eff/` — currently all seven, both species. The correction is 2D in (pT, y) by default; the y-integrated 1D variant is `special_sys_tag_7`.
 
 ## Config Parameters (`config.yaml`)
 

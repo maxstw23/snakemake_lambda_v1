@@ -4,10 +4,58 @@ configfile: 'config.yaml'
 import glob
 import os
 import re
+import shutil
+import sys
 import numpy as np
 
-# CERN ROOT via Docker (not installed locally)
-DOCKER_ROOT = 'docker run --rm -v "$(pwd)":/work -w /work rootproject/root:latest root'
+# How to invoke CERN ROOT: a native `root` when one is on PATH, otherwise the official
+# container. The container mounts the repo at /work and runs there, so every path handed
+# to a macro stays relative to the repo root and is equally valid for a native ROOT
+# (snakemake runs shell commands from the repo root too). Both forms end in `root`, so
+# the rules below are identical either way.
+#
+# Override the choice with either of:
+#     snakemake --config root_cmd='/opt/root/bin/root'   # or set root_cmd in config.yaml
+#     ROOT_CMD='/opt/root/bin/root' snakemake
+#
+# NB: the resolved command keeps the name DOCKER_ROOT because snakemake hashes the text
+# of every `shell:` block. Renaming the placeholder in the rules counts as a code change
+# and re-triggers every combine and fit job (~350 jobs, days of CPU) for anyone with
+# existing results. Not worth a tidier name.
+DOCKER_IMAGE_ROOT = 'docker run --rm -v "$(pwd)":/work -w /work rootproject/root:latest root'
+
+
+def _resolve_root_cmd():
+    """Return (command, human-readable source) for invoking ROOT."""
+    cmd = config.get('root_cmd') or os.environ.get('ROOT_CMD')
+    if cmd:
+        return cmd, 'explicit override'
+    if shutil.which('root'):
+        return 'root', 'native install on PATH'
+    return DOCKER_IMAGE_ROOT, 'Docker (rootproject/root:latest)'
+
+
+DOCKER_ROOT, _root_cmd_source = _resolve_root_cmd()
+sys.stderr.write(f'[Snakefile] ROOT via {_root_cmd_source}\n')
+
+def root_in_dir(subdir):
+    """ROOT invocation whose working directory is `subdir` instead of the repo root.
+
+    FitSlope.C writes its outputs into the current working directory, so rule fit_piKp
+    stages inputs in a temp dir and has to run ROOT there. Docker expresses that with
+    -w, a native ROOT with a plain cd.
+
+    Two constraints on the caller:
+      * call this from a `params:` callable, so the wildcards are already resolved --
+        snakemake formats a shell string only once, so placeholders inside an injected
+        value would never be substituted;
+      * wrap the result in a subshell, `( {params.root_cmd} ... ) > log`, so the cd
+        neither leaks into the following commands nor makes the relative log path
+        resolve inside the temp dir.
+    """
+    if DOCKER_ROOT == DOCKER_IMAGE_ROOT:
+        return f'docker run --rm -v "$(pwd)":/work -w /work/{subdir} rootproject/root:latest root'
+    return f'cd {subdir} && {DOCKER_ROOT}'
 
 # to be changed
 energies = config['energies']
@@ -417,6 +465,7 @@ rule fit_piKp:
         energy=lambda wildcards: wildcards.energy,
         particle=lambda wildcards: wildcards.particle,
         order = lambda wildcards: config['fit_order'][wildcards.energy],
+        root_cmd = lambda wildcards: root_in_dir(f'temp_{wildcards.energy}_{wildcards.particle}'),
     log: stdout='logs/fit_piKp_{energy}_{particle}.log', stderr='logs/fit_piKp_{energy}_{particle}.err'
     shell: 
         """
@@ -424,7 +473,7 @@ rule fit_piKp:
         cp {input.v1_file} temp_{params.energy}_{params.particle}
         cp {input.a1_file} temp_{params.energy}_{params.particle}
         cp {input.script} temp_{params.energy}_{params.particle}
-        docker run --rm -v "$(pwd)":/work -w /work/temp_{params.energy}_{params.particle} rootproject/root:latest root -b -q '{params.script_base}("{params.output_base}", "{params.plot_base}",{params.order})' > {log.stdout} 2> {log.stderr}
+        ( {params.root_cmd} -b -q '{params.script_base}("{params.output_base}", "{params.plot_base}",{params.order})' ) > {log.stdout} 2> {log.stderr}
         mv temp_{params.energy}_{params.particle}/{params.output_base} {output.data_points}
         mv temp_{params.energy}_{params.particle}/{params.plot_base} {output.plot}
         rm -r temp_{params.energy}_{params.particle}
