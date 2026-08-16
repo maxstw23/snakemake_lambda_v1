@@ -233,8 +233,11 @@ def plot_invmass_v1fit(dict_input, figs, input_path):
 
         ax.errorbar(x, y, yerr, 0, ls='none')
         ax.plot(x, y, 'o', c='C0', markersize=3)
-        ax.plot(xfit, total, c='C2', label='Total Fit')
-        ax.plot(xfit, background, c='C5', label='2-Poly Background')
+        # curves are separated by dash pattern as well as color, so they stay
+        # distinguishable in grayscale and with red-green color vision deficiency:
+        # total = solid, background = dash-dot, signal = dashed (same in both panels)
+        ax.plot(xfit, total, c='C2', ls='-', label='Total Fit')
+        ax.plot(xfit, background, c='C5', ls='-.', label='2-Poly Background')
         ax.plot(x, signal, c='red', ls='--', label=r'$\Lambda$ Signal')
         ax.annotate('S = ' + r'${{{:.2ueL}}}$'.format(signal_uncertainty), xy=(0.5, 0.66), xycoords='axes fraction')
         ax.annotate(rf'S/$\sqrt{{S+B}}$ = {S / SpB ** 0.5:.2f}', xy=(0.5, 0.6), xycoords='axes fraction')
@@ -273,9 +276,11 @@ def plot_invmass_v1fit(dict_input, figs, input_path):
         # show_figure(fit)
         ax.errorbar(x, y, yerr=yerr, ls='none')
         ax.scatter(x, y, s=12)
-        ax.plot(x, background, c='C5', label=r'$\frac{B}{S+B}(M_{\text{inv}})v_{1,\text{B}}(M_{\text{inv}})$')
-        ax.plot(x, signal, c='red', label=r'$\frac{S}{S+B}(M_{\text{inv}})v_{1,\text{S}}$')
-        ax.plot(x, total, c='C2', label='Total fit')
+        # same dash-pattern convention as panel (a): background dash-dot, signal dashed,
+        # total solid -- previously all three were solid and separated only by hue
+        ax.plot(x, background, c='C5', ls='-.', label=r'$\frac{B}{S+B}(M_{\text{inv}})v_{1,\text{B}}(M_{\text{inv}})$')
+        ax.plot(x, signal, c='red', ls='--', label=r'$\frac{S}{S+B}(M_{\text{inv}})v_{1,\text{S}}$')
+        ax.plot(x, total, c='C2', ls='-', label='Total fit')
         ax.plot(x, np.zeros_like(x), ls='--', c='k')
         ax.set_ylabel(r'$v_{1,\text{raw}}(M_{\text{inv}})$', fontsize=15)
         ax.set_xlabel(r'$M_{\text{inv}}(\Lambda^0\rightarrow p+\pi^-) (\text{GeV}/c^2)$', fontsize=15)
