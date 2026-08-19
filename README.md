@@ -8,12 +8,15 @@ The end products are the paper figures in `plots/paper/` (collected into `report
 
 ## What is and isn't in this repository
 
-The code is here. **The data is not** — `data/`, `result/`, `plots/` and `logs/` are all gitignored. A fresh clone is about 1.4 MB and cannot run anything until you supply roughly 3.7 GB of inputs (see [Reproducing the analysis](#reproducing-the-analysis)).
+The code **and the inputs** are here; `result/`, `plots/` and `logs/` are gitignored and get rebuilt. A fresh clone is about 1.2 GB and can run the pipeline as-is.
 
-Two things are committed that look like data and are worth knowing about:
+`data/` is tracked, but it holds *trimmed* copies of the upstream productions, not the originals. The raw files are 3.9 GB and five of them are over GitHub's 100 MB per-file limit, so they cannot be tracked without LFS. `scripts/slim_data_files.py` copies out only the objects the Snakemake rules actually open — for the main productions that is the $\Lambda$/$\bar{\Lambda}$/$\Xi$/$\bar{\Xi}$ mass and $v_1$ histograms inside the analysis $p_T$ window, which is 30% of the bytes and 100% of what any rule reads. That takes `data/` to 1.2 GB with the largest file at 48 MB. Nothing that is kept is altered; see [Trimmed inputs](#trimmed-inputs) for what this costs you.
+
+Three things are committed that look like data and are worth knowing about:
 
 - `scripts/pikp_merged.py` and `scripts/pikp_merged_altcuts.py` — the $\pi$/K/p reference flow, compiled into Python modules. These are **generated** files, but they are committed, so the coalescence comparison works without the raw inputs. Edit `gen_pikp_merged.py`, never the modules; anything you hand-edit gets overwritten. Regenerating them needs the `Etabins_20_Coalescence` dataset, which is *not* committed.
 - `docs/` — analysis notes, the statistical audit, and paper prose.
+- `data/` — the trimmed inputs described above.
 
 ## Getting started
 
@@ -54,17 +57,42 @@ The dry run matters. If it lists hundreds of jobs when you expected a plot updat
 
 All inputs live under `data/`, and the Snakefile discovers them by globbing:
 
-| Path | Count | Size | What it is |
-|------|-------|------|------------|
-| `data/result*_{energy}.root` | 7 | 653 MB | default dataset, one per energy |
-| `data/sys_tag_{1,2,3}/result*_sys_tag_N_{energy}.root` | 21 | 1.7 GB | systematic reprocessings with different upstream cuts |
-| `data/eff/result*_{lambda,lambdabar}_exp_{energy}.root` | 14 | 106 MB | MC samples for the efficiency correction |
-| `data/v1_piKp/{energy}/{particle}/cen{N}.v2_pion.root` | 294 | 1.3 GB | $\pi$/K/p flow, centralities 1–9 plus merged bins |
-| `data/model/{urqmd,ampt}/{energy}.root` | 7 | 1 MB | UrQMD and AMPT comparisons |
+| Path | Count | Raw | Tracked | What it is |
+|------|-------|-----|---------|------------|
+| `data/result*_{energy}.root` | 7 | 685 MB | 287 MB | default dataset, one per energy |
+| `data/sys_tag_{1,2,3}/result*_sys_tag_N_{energy}.root` | 21 | 1.76 GB | 811 MB | systematic reprocessings with different upstream cuts |
+| `data/eff/result*_{lambda,lambdabar}_exp_{energy}.root` | 14 | 110 MB | 7.9 MB | MC samples for the efficiency correction |
+| `data/v1_piKp/{energy}/{particle}/cen{N}.v2_pion.root` | 294 | 1.33 GB | 91 MB | $\pi$/K/p flow, centralities 1–9 plus merged bins |
+| `data/model/{urqmd,ampt}/{energy}.root` | 7 | 1 MB | 1 MB | UrQMD and AMPT comparisons (copied whole) |
+
+The **Tracked** column is what is in git; the **Raw** column is the upstream original. If you have the raw productions, drop them in instead — the pipeline reads both identically.
 
 These come out of the upstream KFParticle reconstruction, which lives in a **separate repository** and is not reproducible from here; `docs/upstream_analysis.md` documents the cuts and histograms it produces so you can check that a candidate input file is the right thing.
 
 Beware the discovery rule: for each energy the Snakefile takes the **highest-numbered** matching file. Dropping a newer `resultN` into `data/` silently changes what the analysis runs on, with no error and nothing obvious in the output. The same applies to the systematic and efficiency files.
+
+### Trimmed inputs
+
+`data/` holds trimmed copies. Everything the Snakefile opens is present and bit-identical to the original; what was dropped is:
+
+| Dropped | Why it is safe |
+|---------|----------------|
+| $p_T$ bins outside 4–17 (0.4–1.8 GeV/c) of the mass and $v_1$ arrays | `combine_lambda_{with,without}_eff.cpp` derives `ptbin_lo`/`ptbin_hi` from `pt_lo`/`pt_hi` in `config.yaml` and never asks for the rest. This is the whole reduction — 30 bins to 14 — and the only one that matters for size |
+| `h{Λ,Λ̄,Ξ,Ξ̄}_EPD_a1_pt_*` | `config.yaml` sets `flows: [v1]`, so no rule requests `a1`. Present in only 5 of the 28 productions (14.6 GeV and the 19.6 GeV set), which is too few energies to run an $a_1$ analysis from anyway |
+| `hgp*`, `hgKp*` PID QA (dE/dx, 1/β, $m^2$ vs $p$) | never opened by any rule or script |
+| 129 of the 147 objects per efficiency file | `calculate_lambda_eff.cpp` reads only `hMCParPtY_*` and `hKFPRecoParPtY_*` |
+| ~206 of the ~232 objects per piKp file | `Finish_v1_tof_eff.C` reads 26 of them |
+
+Three things need the raw originals: widening `pt_lo`/`pt_hi` past 0.4–1.8 GeV/c, adding `a1` to `flows`, and `scripts/check_lambda_reco.py` (which scans all 30 $p_T$ bins). Everything else runs unchanged.
+
+To regenerate the trimmed tree from raw productions, or to verify one against the other:
+
+```bash
+python scripts/slim_data_files.py --out backup/data_slim --jobs 12
+python scripts/slim_data_files.py --out backup/data_slim --jobs 12 --check
+```
+
+`--check` compares `values`, `errors`, `fBinEntries`, `fSumw2` and `fEntries` for every retained object, and demands byte equality for the files that are copied whole.
 
 ### What it costs
 
@@ -182,7 +210,7 @@ The rest:
 ## Layout
 
 ```
-data/       inputs: raw, efficiency, pi/K/p reference, models (not in git)
+data/       inputs: raw, efficiency, pi/K/p reference, models (tracked, trimmed)
 result/     combined ROOT files and fit CSVs, one tree per systematic tag
 plots/      per-tag diagnostics; plots/final/ combined; plots/paper/ deliverables
 logs/       stdout/stderr per rule, mirroring the sys_tag structure

@@ -1,13 +1,8 @@
 # Auto detect text files and perform LF normalization
 * text=auto
-data/result7_default_19p6GeV.root filter=lfs diff=lfs merge=lfs -text
-data/sys_tag_2 filter=lfs diff=lfs merge=lfs -text
-data/result1_17p3GeV.root filter=lfs diff=lfs merge=lfs -text
-data/result3_7p7GeV.root filter=lfs diff=lfs merge=lfs -text
-data/result4_9p2GeV.root filter=lfs diff=lfs merge=lfs -text
-data/sys_tag_1 filter=lfs diff=lfs merge=lfs -text
-data/v1_piKp filter=lfs diff=lfs merge=lfs -text
-data/result2_11p5GeV.root filter=lfs diff=lfs merge=lfs -text
-data/result2_14p6GeV.root filter=lfs diff=lfs merge=lfs -text
-data/result9_27GeV.root filter=lfs diff=lfs merge=lfs -text
-data/** filter=lfs diff=lfs merge=lfs -text
+
+# data/ holds trimmed ROOT inputs, tracked directly (see scripts/slim_data_files.py).
+# The LFS filters that used to live here are gone on purpose: after trimming, the
+# largest file is 48 MB, so nothing needs LFS and `git add data/` must not route
+# through it. Mark them binary so autocrlf can never touch them.
+*.root binary
